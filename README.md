@@ -67,7 +67,7 @@ make test-ui TEST_URL=http://localhost:8080/
 
 ## Deployment
 
-The included GitHub Actions workflow builds the site and deploys `dist/` to GitHub Pages on pushes to `main`.
+The included GitHub Actions workflow downloads the default SNCF GTFS archive, builds the site, and deploys `dist/` to GitHub Pages on pushes to `main`.
 
 To enable GitHub Pages, set **Settings > Pages > Build and deployment** to **GitHub Actions**.
 

@@ -26,6 +26,9 @@ jobs:
       - name: Install wasm-pack
         run: cargo install wasm-pack --locked --version 0.15.0
 
+      - name: Download SNCF GTFS archive
+        run: make fetch-gtfs
+
       - name: Build static site
         run: make build
 
