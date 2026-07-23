@@ -1,0 +1,548 @@
+const DEFAULT_CONFIG = {
+  local_origins: ["Saujon", "Saintes"],
+  connection_stations: ["Bordeaux Saint-Jean", "Poitiers", "Angoulême"],
+  side_b_destinations: [
+    "Paris Montparnasse Hall 1 - 2",
+    "Massy TGV",
+    "Paris Est",
+    "Paris Gare du Nord",
+    "Paris Saint-Lazare",
+    "Paris Montparnasse Vaugirard",
+    "Paris Austerlitz",
+    "Paris Gare de Lyon Hall 1 - 2",
+  ],
+  train_types: [],
+  min_transfer_minutes: 10,
+  max_transfer_minutes: 120,
+  max_transfer_count: 2,
+  max_journey_duration_minutes: 1440,
+};
+const SERVER_GTFS_URL = "./data/gtfs.zip";
+
+const state = {
+  config: structuredClone(DEFAULT_CONFIG),
+  context: null,
+  routes: { outward: [], returns: [], selected_day: null },
+  selectedTab: "out",
+  highlights: [],
+  highlightsInitialized: false,
+  highlightOptions: [],
+  availableDays: [],
+  selectedDay: null,
+  settingsDirty: false,
+};
+
+const worker = new Worker("./worker.js", { type: "module" });
+
+const $ = (selector) => document.querySelector(selector);
+
+const els = {
+  status: $("#cache-status"),
+  statusText: $("#cache-status-text"),
+  progress: $("#cache-progress"),
+  bundledBtn: $("#load-bundled"),
+  uploadInput: $("#gtfs-upload"),
+  uploadBtn: $("#load-upload"),
+  localOrigins: $("#config-local-origins"),
+  connectionStations: $("#config-connection-stations"),
+  sideBDestinations: $("#config-side-b-destinations"),
+  stationFilters: Array.from(document.querySelectorAll(".station-filter")),
+  trainTypeFilter: $("#train-type-filter"),
+  trainTypes: $("#config-train-types"),
+  minTransfer: $("#config-min-transfer"),
+  maxTransfer: $("#config-max-transfer"),
+  maxTransferCount: $("#config-max-transfer-count"),
+  maxDuration: $("#config-max-duration"),
+  dayCalendar: $("#day-calendar"),
+  highlightFilter: $("#highlight-filter"),
+  highlights: $("#highlight-stations"),
+  tabs: $("#route-direction-tabs"),
+  timeline: $("#routes-time-chart"),
+  detailLayer: $("#train-detail-dismiss-layer"),
+  detailFrame: $("#train-detail-frame"),
+};
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function minutesToDuration(minutes) {
+  const value = Number(minutes || 0);
+  const hours = Math.floor(value / 60);
+  const mins = value % 60;
+  return hours ? `${hours}h${String(mins).padStart(2, "0")}` : `${mins}m`;
+}
+
+function clockLabel(minute) {
+  const hours = Math.floor(minute / 60) % 24;
+  const mins = minute % 60;
+  return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+}
+
+function readConfig() {
+  const minTransfer = Math.max(0, Number(els.minTransfer.value || 0));
+  const maxTransfer = Math.max(minTransfer, Number(els.maxTransfer.value || minTransfer));
+  return {
+    local_origins: state.config.local_origins,
+    connection_stations: state.config.connection_stations,
+    side_b_destinations: state.config.side_b_destinations,
+    train_types: state.config.train_types,
+    min_transfer_minutes: minTransfer,
+    max_transfer_minutes: maxTransfer,
+    max_transfer_count: Math.max(0, Number(els.maxTransferCount.value || 0)),
+    max_journey_duration_minutes: Math.max(0, Number(els.maxDuration.value || 0)),
+  };
+}
+
+function writeConfig(config) {
+  renderStationPickers([], config);
+  els.minTransfer.value = config.min_transfer_minutes;
+  els.maxTransfer.value = config.max_transfer_minutes;
+  els.maxTransferCount.value = config.max_transfer_count;
+  els.maxDuration.value = config.max_journey_duration_minutes;
+}
+
+function setStatus(message, progress = 0, tone = "loading") {
+  els.status.className = `status ${tone}`;
+  els.statusText.textContent = message;
+  els.progress.value = String(progress);
+}
+
+function setBusy(isBusy) {
+  for (const element of [
+    els.bundledBtn,
+    els.uploadBtn,
+    els.dayCalendar,
+  ]) {
+    element.disabled = isBusy || (element === els.dayCalendar && !state.context);
+  }
+}
+
+function gtfsToIsoDate(day) {
+  const text = String(day || "");
+  return text.length === 8 ? `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}` : "";
+}
+
+function isoToGtfsDate(day) {
+  return String(day || "").replaceAll("-", "");
+}
+
+function stationContainer(role) {
+  if (role === "local_origins") return els.localOrigins;
+  if (role === "connection_stations") return els.connectionStations;
+  return els.sideBDestinations;
+}
+
+function selectedSet(config, role) {
+  return new Set(config?.[role] || state.config[role] || []);
+}
+
+function sortedFilteredOptions(options, selected, filterText = "") {
+  const normalizedFilter = filterText.trim().toLowerCase();
+  const collator = new Intl.Collator(undefined, { sensitivity: "base" });
+  return [...new Set(options)]
+    .filter((option) => !normalizedFilter || option.toLowerCase().includes(normalizedFilter))
+    .sort((left, right) => {
+      const leftSelected = selected.has(left);
+      const rightSelected = selected.has(right);
+      if (leftSelected !== rightSelected) return leftSelected ? -1 : 1;
+      return collator.compare(left, right);
+    });
+}
+
+function renderCheckboxList(container, options, selected, filterText, className = "station-choice") {
+  const visibleOptions = sortedFilteredOptions(options, selected, filterText);
+  container.innerHTML = visibleOptions.map((option) => {
+    const checked = selected.has(option) ? "checked" : "";
+    return `
+      <label class="${className}" title="${escapeHtml(option)}">
+        <input type="checkbox" value="${escapeHtml(option)}" ${checked} />
+        <span>${escapeHtml(option)}</span>
+      </label>
+    `;
+  }).join("");
+}
+
+function renderStationPicker(role, stations, config, filterText = "") {
+  const container = stationContainer(role);
+  const selected = selectedSet(config, role);
+  renderCheckboxList(container, stations.length ? stations : Array.from(selected), selected, filterText, "station-choice");
+}
+
+function renderStationPickers(stations, config = state.config) {
+  for (const role of ["local_origins", "connection_stations", "side_b_destinations"]) {
+    const filter = document.querySelector(`.station-filter[data-role="${role}"]`);
+    renderStationPicker(role, stations, config, filter?.value || "");
+  }
+}
+
+function syncStationState(role, input) {
+  const selected = new Set(state.config[role] || []);
+  if (input.checked) {
+    selected.add(input.value);
+  } else {
+    selected.delete(input.value);
+  }
+  state.config[role] = Array.from(selected).sort();
+}
+
+function syncSetValue(values, input) {
+  const selected = new Set(values);
+  if (input.checked) {
+    selected.add(input.value);
+  } else {
+    selected.delete(input.value);
+  }
+  return Array.from(selected).sort();
+}
+
+function renderTrainTypePicker(types, filterText = "") {
+  renderCheckboxList(els.trainTypes, types, new Set(state.config.train_types), filterText, "station-choice");
+}
+
+function highlightOptionsFromConfig() {
+  return Array.from(new Set([
+    ...state.config.local_origins,
+    ...state.config.connection_stations,
+    ...state.config.side_b_destinations,
+  ])).sort();
+}
+
+function renderHighlightPicker(filterText = "") {
+  state.highlightOptions = highlightOptionsFromConfig();
+  const valid = new Set(state.highlightOptions);
+  state.highlights = state.highlights.filter((station) => valid.has(station));
+  renderCheckboxList(els.highlights, state.highlightOptions, new Set(state.highlights), filterText, "station-choice");
+}
+
+function stationGroupLabel(stations) {
+  const values = stations.filter(Boolean);
+  if (values.length <= 2) return values.join("/");
+  return `${values[0]}/${values[1]} +${values.length - 2}`;
+}
+
+function directionLabels() {
+  const local = stationGroupLabel(state.config.local_origins);
+  const sideB = stationGroupLabel(state.config.side_b_destinations);
+  return {
+    out: `${local} to ${sideB}`,
+    back: `${sideB} to ${local}`,
+  };
+}
+
+function defaultDay(days) {
+  if (!days.length) return "";
+  const now = new Date();
+  const today = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+  return days.includes(today) ? today : days[0];
+}
+
+function populateContextControls(context) {
+  state.availableDays = context.available_days || [];
+  state.selectedDay = defaultDay(state.availableDays);
+  els.dayCalendar.min = gtfsToIsoDate(context.available_days[0] || "");
+  els.dayCalendar.max = gtfsToIsoDate(context.available_days[context.available_days.length - 1] || "");
+  els.dayCalendar.value = gtfsToIsoDate(state.selectedDay);
+  els.dayCalendar.title = context.available_days.length
+    ? `Available service days: ${context.available_days.map(gtfsToIsoDate).join(", ")}`
+    : "No available service days";
+
+  const selectedTypes = new Set(state.config.train_types.length ? state.config.train_types : context.train_types);
+  state.config.train_types = Array.from(selectedTypes).sort();
+  if (!state.highlightsInitialized) {
+    const initialHighlightOptions = highlightOptionsFromConfig();
+    if (state.config.local_origins.length && initialHighlightOptions.includes(state.config.local_origins[0])) {
+      state.highlights = [state.config.local_origins[0]];
+    }
+    state.highlightsInitialized = true;
+  }
+  renderTrainTypePicker(context.train_types || [], els.trainTypeFilter.value);
+  renderHighlightPicker(els.highlightFilter.value);
+  renderStationPickers(context.station_names || [], state.config);
+}
+
+function requestRoutes() {
+  if (!state.context) return;
+  setTimelinePlaceholder("Loading selected day...");
+  worker.postMessage({
+    type: "routes",
+    day: state.selectedDay || null,
+    overrides: readConfig(),
+  });
+}
+
+function routeStations(itinerary) {
+  const stations = new Set([itinerary.departure_stop, itinerary.destination_stop]);
+  for (const leg of itinerary.legs || []) {
+    stations.add(leg.departure_stop);
+    stations.add(leg.destination_stop);
+    for (const point of leg.path || []) stations.add(point.stop_name);
+  }
+  return stations;
+}
+
+function timelineLabel(prefix, itinerary, index) {
+  const names = [itinerary.departure_stop, ...(itinerary.legs || []).map((leg) => leg.destination_stop)];
+  const text = `${prefix} ${index + 1}: ${names.join(" -> ")}`;
+  const highlights = new Set(state.highlights);
+  const stations = routeStations(itinerary);
+  const matched = highlights.size > 0 && Array.from(highlights).every((station) => stations.has(station));
+  return matched ? `<b>${escapeHtml(text)}</b>` : escapeHtml(text);
+}
+
+function trainTypeClass(type) {
+  return String(type || "train").toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+}
+
+function setTimelinePlaceholder(message) {
+  els.timeline.innerHTML = `<div class="timeline-empty">${escapeHtml(message)}</div>`;
+}
+
+function showRefreshNotice() {
+  if (!state.context) return;
+  state.settingsDirty = true;
+  state.routes = { outward: [], returns: [], selected_day: state.selectedDay };
+  els.timeline.innerHTML = `
+    <div class="timeline-empty refresh-notice">
+      <span>Route settings changed.</span>
+      <button class="refresh-routes" type="button">Refresh routes</button>
+    </div>
+  `;
+}
+
+function refreshRoutes() {
+  if (!state.context) return;
+  state.settingsDirty = false;
+  state.config = readConfig();
+  setBusy(true);
+  worker.postMessage({ type: "apply-config", config: state.config });
+}
+
+function renderTimeline(itineraries, prefix, title) {
+  if (!itineraries.length) {
+    els.timeline.innerHTML = `<h3>${escapeHtml(title)}</h3><div class="timeline-empty">No matching connections for this day.</div>`;
+    return;
+  }
+  const ticks = Array.from({ length: 13 }, (_, index) => index * 120);
+  const rows = itineraries.map((itinerary, rowIndex) => {
+    const segments = [];
+    itinerary.legs.forEach((leg, legIndex) => {
+      segments.push({
+        kind: "train",
+        label: legIndex === 0 ? leg.train_type : (leg.train_number || leg.train_type),
+        start: leg.departure_minutes,
+        end: leg.arrival_minutes,
+        trainType: leg.train_type,
+        detail: leg,
+      });
+      if (itinerary.transfers[legIndex]) {
+        const transfer = itinerary.transfers[legIndex];
+        segments.push({
+          kind: "transfer",
+          label: minutesToDuration(transfer.wait_minutes),
+          start: transfer.arrival_minutes,
+          end: transfer.departure_minutes,
+        });
+      }
+    });
+    const bars = segments.map((segment) => {
+      const left = (segment.start / 1440) * 100;
+      const width = Math.max(0.3, ((segment.end - segment.start) / 1440) * 100);
+      const detail = segment.detail ? encodeURIComponent(JSON.stringify(segment.detail)) : "";
+      return `<button class="timeline-bar ${segment.kind} ${segment.trainType ? trainTypeClass(segment.trainType) : ""}" data-detail="${detail}" style="left:${left}%;width:${width}%">${escapeHtml(segment.label)}</button>`;
+    }).join("");
+    return `
+      <div class="timeline-row">
+        <div class="timeline-label">${timelineLabel(prefix, itinerary, rowIndex)}</div>
+        <div class="timeline-lane">${bars}</div>
+      </div>
+    `;
+  }).join("");
+  els.timeline.innerHTML = `
+    <h3>${escapeHtml(title)}</h3>
+    <div class="timeline-scale">${ticks.map((minute) => `<span style="left:${(minute / 1440) * 100}%">${clockLabel(minute)}</span>`).join("")}</div>
+    <div class="timeline-grid">${rows}</div>
+  `;
+}
+
+function renderCurrentTab() {
+  const labels = directionLabels();
+  if (state.selectedTab === "back") {
+    renderTimeline(state.routes.returns || [], "Back", `${labels.back} timeline - ${state.routes.selected_day || ""}`);
+  } else {
+    renderTimeline(state.routes.outward || [], "Out", `${labels.out} timeline - ${state.routes.selected_day || ""}`);
+  }
+}
+
+function renderRoutes(result) {
+  state.routes = result;
+  renderCurrentTab();
+}
+
+function showDetail(leg, event) {
+  const stops = leg.journey_path || leg.path || [];
+  const train = leg.train_number ? `${leg.train_type} ${leg.train_number}` : leg.train_type;
+  els.detailFrame.innerHTML = `
+    <div class="detail-title">${escapeHtml(train)} | ${escapeHtml(leg.departure_stop)} ${escapeHtml(leg.departure_time)} -> ${escapeHtml(leg.destination_stop)} ${escapeHtml(leg.arrival_time)}</div>
+    <div class="detail-stops">
+      ${stops.map((stop) => {
+        const time = stop.arrival_time && stop.departure_time && stop.arrival_time !== stop.departure_time
+          ? `${stop.arrival_time} / ${stop.departure_time}`
+          : (stop.departure_time || stop.arrival_time);
+        return `<div class="detail-stop ${stop.in_segment ? "active" : "context"}"><span>${escapeHtml(time)}</span><i></i><strong>${escapeHtml(stop.stop_name)}</strong></div>`;
+      }).join("")}
+    </div>
+  `;
+  els.detailFrame.hidden = false;
+  els.detailLayer.hidden = false;
+  const rect = event.target.getBoundingClientRect();
+  els.detailFrame.style.left = `${Math.min(Math.max(16, rect.left + 18), window.innerWidth - 420)}px`;
+  els.detailFrame.style.top = `${Math.max(16, rect.top + window.scrollY + 34)}px`;
+}
+
+function hideDetail() {
+  els.detailFrame.hidden = true;
+  els.detailLayer.hidden = true;
+}
+
+worker.onmessage = (event) => {
+  const { type } = event.data;
+  if (type === "progress") {
+    setBusy(true);
+    setStatus(event.data.message, event.data.progress, "loading");
+    return;
+  }
+  if (type === "ready") {
+    state.context = event.data.context;
+    populateContextControls(state.context);
+    setStatus(`Cache ready${event.data.cached ? " from browser cache" : ""}. GTFS service dates: ${state.context.coverage.label}.`, 100, "ready");
+    setBusy(false);
+    state.settingsDirty = false;
+    requestRoutes();
+    return;
+  }
+  if (type === "routes") {
+    state.settingsDirty = false;
+    renderRoutes(event.data.result);
+    setBusy(false);
+    return;
+  }
+  if (type === "error") {
+    setStatus(event.data.message, 0, "error");
+    setBusy(false);
+  }
+};
+
+els.bundledBtn.addEventListener("click", () => {
+  state.config = readConfig();
+  setBusy(true);
+  worker.postMessage({ type: "load-bundled", url: SERVER_GTFS_URL, config: state.config });
+});
+
+els.uploadBtn.addEventListener("click", async () => {
+  const file = els.uploadInput.files[0];
+  if (!file) {
+    setStatus("Choose a GTFS zip file first.", 0, "error");
+    return;
+  }
+  state.config = readConfig();
+  setBusy(true);
+  const buffer = await file.arrayBuffer();
+  worker.postMessage(
+    { type: "load-upload", buffer, name: file.name, lastModified: file.lastModified, config: state.config },
+    [buffer],
+  );
+});
+
+els.dayCalendar.addEventListener("change", () => {
+  const selected = isoToGtfsDate(els.dayCalendar.value);
+  if (!state.availableDays.includes(selected)) {
+    setStatus("No service matching route settings for the selected calendar day.", 0, "error");
+    return;
+  }
+  state.selectedDay = selected;
+  if (state.settingsDirty) {
+    showRefreshNotice();
+    return;
+  }
+  requestRoutes();
+});
+els.tabs.addEventListener("click", (event) => {
+  const tab = event.target.closest("[data-tab]");
+  if (!tab) return;
+  state.selectedTab = tab.dataset.tab;
+  for (const button of els.tabs.querySelectorAll("[data-tab]")) {
+    button.classList.toggle("selected", button.dataset.tab === state.selectedTab);
+  }
+  if (state.settingsDirty) {
+    showRefreshNotice();
+  } else {
+    renderCurrentTab();
+  }
+});
+els.timeline.addEventListener("click", (event) => {
+  const bar = event.target.closest(".timeline-bar.train");
+  if (!bar || !bar.dataset.detail) return;
+  showDetail(JSON.parse(decodeURIComponent(bar.dataset.detail)), event);
+});
+els.timeline.addEventListener("click", (event) => {
+  if (event.target.closest(".refresh-routes")) {
+    refreshRoutes();
+  }
+});
+els.detailLayer.addEventListener("click", hideDetail);
+for (const filter of els.stationFilters) {
+  filter.addEventListener("input", () => {
+    renderStationPicker(filter.dataset.role, state.context?.station_names || [], state.config, filter.value);
+  });
+}
+els.trainTypeFilter.addEventListener("input", () => {
+  renderTrainTypePicker(state.context?.train_types || [], els.trainTypeFilter.value);
+});
+els.trainTypes.addEventListener("change", (event) => {
+  if (event.target instanceof HTMLInputElement) {
+    state.config.train_types = syncSetValue(state.config.train_types, event.target);
+    renderTrainTypePicker(state.context?.train_types || [], els.trainTypeFilter.value);
+    showRefreshNotice();
+  }
+});
+els.highlightFilter.addEventListener("input", () => {
+  renderHighlightPicker(els.highlightFilter.value);
+});
+els.highlights.addEventListener("change", (event) => {
+  if (event.target instanceof HTMLInputElement) {
+    state.highlights = syncSetValue(state.highlights, event.target);
+    renderHighlightPicker(els.highlightFilter.value);
+    if (state.settingsDirty) {
+      showRefreshNotice();
+    } else {
+      renderCurrentTab();
+    }
+  }
+});
+for (const [role, container] of [
+  ["local_origins", els.localOrigins],
+  ["connection_stations", els.connectionStations],
+  ["side_b_destinations", els.sideBDestinations],
+]) {
+  container.addEventListener("change", (event) => {
+    if (event.target instanceof HTMLInputElement) {
+      syncStationState(role, event.target);
+      renderStationPicker(role, state.context?.station_names || [], state.config, document.querySelector(`.station-filter[data-role="${role}"]`)?.value || "");
+      renderHighlightPicker(els.highlightFilter.value);
+      showRefreshNotice();
+    }
+  });
+}
+for (const input of [els.minTransfer, els.maxTransfer, els.maxTransferCount, els.maxDuration]) {
+  input.addEventListener("change", showRefreshNotice);
+}
+
+writeConfig(DEFAULT_CONFIG);
+setTimelinePlaceholder("Load a GTFS archive to build routes.");
+setStatus("Waiting for GTFS archive.", 0, "idle");

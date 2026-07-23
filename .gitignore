@@ -1,0 +1,22 @@
+# Rust and WebAssembly build output
+/target/
+/pkg/
+
+# Static site build output
+/dist/
+
+# Local GTFS data
+/www/data/*
+!/www/data/.gitkeep
+*.zip
+
+# Local test/runtime caches
+__pycache__/
+.pytest_cache/
+.cache/
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
