@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="A technical implementation note for building static HTML, CSS, JavaScript, and Rust WebAssembly applications that run on GitHub Pages."
+    />
+    <title>Static Rust/Wasm app strategy</title>
+    <link rel="stylesheet" href="./strategy.css" />
+  </head>
+  <body id="top">
+    <header class="site-header">
+      <a class="brand" href="./index.html" aria-label="Back to app">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>Static Wasm App Notes</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="#layout">Layout</a>
+        <a href="#boundary">Boundary</a>
+        <a class="nav-cta" href="#deploy">No cloud</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="kicker"><span>Implementation note</span> / Old-web deployment, modern local compute</p>
+          <h1>No backend process. No cloud runtime. Just files, browser APIs, and Rust compiled to Wasm.</h1>
+          <p class="hero-lead">
+            The app is built like an old static website: HTML for structure, CSS for
+            layout, JavaScript for browser coordination, and a compiled binary served
+            next to the page. The difference is that the binary is WebAssembly produced
+            from Rust, so the browser can run the heavy backend logic locally.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#procedure">Read the recipe</a>
+            <a class="button secondary" href="https://github.com/bbodin/train-route-explorer">Source repository</a>
+          </div>
+        </div>
+
+        <aside class="decision-card" aria-label="Architecture summary">
+          <p class="card-label">Files served by Pages</p>
+          <pre><code>www/
+  index.html
+  style.css
+  app.js
+  worker.js
+src/
+  lib.rs
+Cargo.toml
+Makefile
+dist/
+  index.html
+  app.js
+  worker.js
+  pkg/*.wasm</code></pre>
+        </aside>
+      </section>
+
+      <section class="proof-strip" aria-label="Runtime pipeline">
+        <div><strong>make</strong><span>compile Rust and copy static files</span></div>
+        <div><strong>dist</strong><span>the only deployment artifact</span></div>
+        <div><strong>http</strong><span>GitHub Pages serves bytes</span></div>
+        <div><strong>wasm</strong><span>the browser runs the backend locally</span></div>
+      </section>
+
+      <article>
+        <section id="layout" class="editorial-section intro-section">
+          <div class="section-index">01 / Project</div>
+          <div class="section-body">
+            <p class="overline">Treat the server like 1998</p>
+            <h2>The runtime server should only answer GET requests for files.</h2>
+            <div class="two-column-copy">
+              <p>
+                The browser downloads HTML, CSS, JavaScript, the generated Wasm loader,
+                and the <code>.wasm</code> binary. There is no application server at runtime.
+                That constraint is useful because it forces all runtime dependencies to be
+                explicit browser APIs: DOM, module workers, fetch, WebAssembly, and optional
+                persistent storage.
+              </p>
+              <p>
+                For a different app, keep the same split. Put interface files under
+                <code>www/</code>. Put Rust under <code>src/</code>. Compile Rust with
+                <code>wasm-pack</code> into <code>pkg/</code>. Copy <code>www/</code> and
+                <code>pkg/</code> into <code>dist/</code>. Publish only <code>dist/</code>.
+                GitHub Pages is used as a static file shelf, not as a backend.
+              </p>
+            </div>
+
+            <div class="code-card wide-code">
+              <p class="card-label">Build target used by this project</p>
+              <pre><code>build:
+	wasm-pack build --target web --out-dir pkg
+	rm -rf "$(DIST_DIR)"
+	mkdir -p "$(DIST_DIR)"
+	cp -a www/. "$(DIST_DIR)/"
+	cp -a pkg "$(DIST_DIR)/pkg"</code></pre>
+            </div>
+          </div>
+        </section>
+
+        <section id="boundary" class="editorial-section architecture-section">
+          <div class="section-index">02 / Runtime</div>
+          <div class="section-body">
+            <p class="overline">Local process model</p>
+            <h2>Split the app by runtime, not by framework.</h2>
+            <p class="section-lead">
+              The UI thread should never run the expensive algorithm. The worker should not
+              contain domain rules. Rust should not know about the DOM. The interface between
+              the worker and Rust should be coarse: pass a complete input and configuration in,
+              return a complete result out.
+            </p>
+
+            <div class="architecture-flow" aria-label="Application architecture">
+              <div class="flow-node">
+                <span class="node-number">01</span>
+                <strong>index.html</strong>
+                <small>document</small>
+                <p>Static markup, form controls, containers for rendered output.</p>
+              </div>
+              <div class="flow-node">
+                <span class="node-number">02</span>
+                <strong>app.js</strong>
+                <small>UI state</small>
+                <p>Reads controls, sends commands, renders worker responses.</p>
+              </div>
+              <div class="flow-node">
+                <span class="node-number">03</span>
+                <strong>worker.js</strong>
+                <small>runtime bridge</small>
+                <p>Loads Wasm, owns long-running work, reports progress and errors.</p>
+              </div>
+              <div class="flow-node accent-node">
+                <span class="node-number">04</span>
+                <strong>lib.rs</strong>
+                <small>Wasm core</small>
+                <p>Parses input, validates data, runs algorithms, serializes results.</p>
+              </div>
+            </div>
+
+            <div class="technical-notes">
+              <div>
+                <span>A</span>
+                <h3>HTML/CSS</h3>
+                <p>
+                  Use normal browser markup. A form, buttons, status text, and output
+                  containers are enough for many tools. No build step is needed for the UI.
+                </p>
+              </div>
+              <div>
+                <span>B</span>
+                <h3>JavaScript</h3>
+                <p>
+                  Use JavaScript as glue: read controls, start the worker, pass messages,
+                  keep UI state, and render returned plain objects.
+                </p>
+              </div>
+              <div>
+                <span>C</span>
+                <h3>Rust/Wasm</h3>
+                <p>
+                  Put the backend-shaped part here: parsing, validation, indexing,
+                  search, scoring, simulation, or any deterministic CPU work.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="procedure" class="editorial-section principles-section">
+          <div class="section-index">03 / Recipe</div>
+          <div class="section-body">
+            <p class="overline">Repeatable build order</p>
+            <h2>The implementation sequence I would reuse.</h2>
+            <ol class="principle-list">
+              <li>
+                <span>01</span>
+                <div>
+                  <h3>Create the Rust crate as a Wasm library.</h3>
+                  <p>
+                    The crate must compile as <code>cdylib</code>. Use
+                    <code>wasm-bindgen</code> for exported functions and
+                    <code>serde-wasm-bindgen</code> to convert typed Rust structs to and
+                    from JavaScript values.
+                  </p>
+                  <pre><code>[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+serde-wasm-bindgen = "0.6"
+serde = { version = "1", features = ["derive"] }</code></pre>
+                </div>
+              </li>
+
+              <li>
+                <span>02</span>
+                <div>
+                  <h3>Export a small API from Rust.</h3>
+                  <p>
+                    Do not expose one Wasm function per tiny operation. Crossing the
+                    JS/Wasm boundary has serialization cost. Export functions that map
+                    to application-level operations, such as building an index and
+                    querying that index.
+                  </p>
+                  <pre><code>#[wasm_bindgen]
+pub fn build_context(bytes: &[u8], config_value: JsValue) -&gt; Result&lt;JsValue, JsValue&gt; {
+    let config: BuildConfig = from_js(config_value)?;
+    let context = build_domain_context(bytes, config)?;
+    to_js(&amp;context)
+}
+
+#[wasm_bindgen]
+pub fn query_context(context_value: JsValue, request_value: JsValue) -&gt; Result&lt;JsValue, JsValue&gt; {
+    let context: AppContext = from_js(context_value)?;
+    let request: QueryRequest = from_js(request_value)?;
+    to_js(&amp;run_query(&amp;context, &amp;request))
+}</code></pre>
+                </div>
+              </li>
+
+              <li>
+                <span>03</span>
+                <div>
+                  <h3>Use typed request and response structs.</h3>
+                  <p>
+                    Treat the Wasm boundary as an API contract. JavaScript sends plain
+                    objects. Rust immediately deserializes them into typed structs,
+                    validates them, and returns typed output. This keeps algorithm code
+                    independent from browser object shapes.
+                  </p>
+                  <pre><code>#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BuildConfig {
+    selected_inputs: Vec&lt;String&gt;,
+    max_depth: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct QueryRequest {
+    selected_day: Option&lt;String&gt;,
+    limit: usize,
+}</code></pre>
+                </div>
+              </li>
+
+              <li>
+                <span>04</span>
+                <div>
+                  <h3>Load the generated Wasm module inside a module worker.</h3>
+                  <p>
+                    The generated <code>pkg/*.js</code> file is an ES module when
+                    built with <code>--target web</code>. Import it from a worker,
+                    call <code>init()</code> once, then call exported Rust functions
+                    from worker command handlers.
+                  </p>
+                  <pre><code>import init, { build_context, routes_for_day } from "./pkg/train_route_explorer.js";
+
+let wasmReady = false;
+let activeContext = null;
+
+async function ensureWasm() {
+  if (!wasmReady) {
+    await init();
+    wasmReady = true;
+  }
+}
+
+self.onmessage = async (event) =&gt; {
+  await ensureWasm();
+  if (event.data.type === "build") {
+    activeContext = build_context(event.data.bytes, event.data.config);
+    self.postMessage({ type: "ready", context: activeContext });
+  }
+};</code></pre>
+                </div>
+              </li>
+
+              <li>
+                <span>05</span>
+                <div>
+                  <h3>Transfer binary input instead of copying it.</h3>
+                  <p>
+                    If the app reads a file, send the <code>ArrayBuffer</code> to the
+                    worker as a transferable. The main thread loses ownership of that
+                    buffer, and the browser avoids an unnecessary memory copy.
+                  </p>
+                  <pre><code>const worker = new Worker("./worker.js", { type: "module" });
+const buffer = await file.arrayBuffer();
+
+worker.postMessage(
+  { type: "load-upload", buffer, name: file.name, config },
+  [buffer],
+);</code></pre>
+                </div>
+              </li>
+
+              <li>
+                <span>06</span>
+                <div>
+                  <h3>Keep UI state in JavaScript, not in the DOM.</h3>
+                  <p>
+                    The DOM is a rendering target. Store selected options, current
+                    result, dirty flags, progress, and error state in a JavaScript
+                    object. Re-render from that state when the worker sends
+                    <code>progress</code>, <code>ready</code>, <code>result</code>, or
+                    <code>error</code>.
+                  </p>
+                  <pre><code>worker.onmessage = (event) =&gt; {
+  if (event.data.type === "progress") updateProgress(event.data);
+  if (event.data.type === "ready") renderReadyState(event.data.context);
+  if (event.data.type === "result") renderResult(event.data.result);
+  if (event.data.type === "error") renderError(event.data.message);
+};</code></pre>
+                </div>
+              </li>
+
+              <li>
+                <span>07</span>
+                <div>
+                  <h3>Do not confuse memory, HTTP cache, and IndexedDB.</h3>
+                  <p>
+                    Worker variables survive while the page is open. They do not survive
+                    a reload. In this app, the GTFS bytes live in worker memory as
+                    <code>archiveBytes</code>, so opening the same page again starts from
+                    <code>null</code>. IndexedDB is used for expensive derived output, not
+                    for the original zip file.
+                  </p>
+                  <pre><code>let archiveBytes = null;
+let sourceMeta = null;
+let activeContext = null;
+
+async function fetchArchive(url) {
+  const response = await fetch(url, { cache: "no-store" });
+  const buffer = await response.arrayBuffer();
+  return { bytes: new Uint8Array(buffer), meta: { url } };
+}</code></pre>
+                  <p class="inline-note">
+                    That means a cached context can avoid rebuilding the Rust/Wasm index,
+                    but the app still needs source bytes after a reload to identify or
+                    rebuild that context. With <code>cache: "no-store"</code>, even the
+                    browser HTTP cache is bypassed for the bundled archive.
+                  </p>
+                  <p>
+                    If the requirement is "open the app tomorrow and do not download or
+                    choose the source file again", store the source bytes in IndexedDB as
+                    a separate object store. Key it by a content hash or stable release
+                    version, then load it before falling back to network or file upload.
+                  </p>
+                  <pre><code>const key = JSON.stringify({
+  version: "app-context-v1",
+  sourceHash,
+  buildConfig,
+});
+
+const tx = db.transaction(["sources", "contexts"], "readwrite");
+tx.objectStore("sources").put({ bytes: archiveBytes, meta: sourceMeta }, sourceHash);
+tx.objectStore("contexts").put(activeContext, key);</code></pre>
+                </div>
+              </li>
+
+              <li>
+                <span>08</span>
+                <div>
+                  <h3>Publish the static build to GitHub Pages.</h3>
+                  <p>
+                    The action installs the Rust Wasm target, installs
+                    <code>wasm-pack</code>, runs the static build, uploads
+                    <code>dist/</code>, and deploys that artifact to Pages. GitHub
+                    Pages then serves the files. It does not run the app logic. The
+                    browser runs the app logic after downloading those files.
+                  </p>
+                  <pre><code>- name: Install Rust WASM target
+  run: rustup target add wasm32-unknown-unknown
+
+- name: Install wasm-pack
+  run: cargo install wasm-pack --locked --version 0.15.0
+
+- name: Build static site
+  run: make build
+
+- name: Upload GitHub Pages artifact
+  uses: actions/upload-pages-artifact@v3
+  with:
+    path: dist
+
+- name: Deploy to GitHub Pages
+  uses: actions/deploy-pages@v4</code></pre>
+                </div>
+              </li>
+            </ol>
+          </div>
+        </section>
+
+        <section id="deploy" class="editorial-section tradeoffs-section">
+          <div class="section-index">04 / Checks</div>
+          <div class="section-body">
+            <p class="overline">Where this stops working</p>
+            <h2>This pattern is old-web hosting with local compute, not magic.</h2>
+            <div class="tradeoff-grid">
+              <div class="tradeoff-card wins">
+                <p class="card-label">Use it when</p>
+                <ul>
+                  <li>The app can run with browser APIs only.</li>
+                  <li>The heavy logic is deterministic and local to one user.</li>
+                  <li>The input and derived state fit target browser memory.</li>
+                  <li>The Rust API can be expressed as a few coarse functions.</li>
+                  <li>A static directory is a valid release artifact.</li>
+                </ul>
+              </div>
+              <div class="tradeoff-card limits">
+                <p class="card-label">Do not use it when</p>
+                <ul>
+                  <li>The app needs secrets, private tokens, or privileged network calls.</li>
+                  <li>Users must share authoritative mutable state.</li>
+                  <li>The dataset is too large for browser memory.</li>
+                  <li>The computation must run on a schedule without a browser open.</li>
+                  <li>You need server-side indexing across many users.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="editorial-section intro-section">
+          <div class="section-index">05 / Template</div>
+          <div class="section-body">
+            <p class="overline">Copyable skeleton</p>
+            <h2>The whole deployment can stay this boring.</h2>
+            <div class="code-grid">
+              <div class="code-card">
+                <p class="card-label">Local build</p>
+                <pre><code>rustup target add wasm32-unknown-unknown
+cargo install wasm-pack --locked
+wasm-pack build --target web --out-dir pkg
+mkdir -p dist
+cp -a www/. dist/
+cp -a pkg dist/pkg</code></pre>
+              </div>
+              <div class="code-card">
+                <p class="card-label">Local test server</p>
+                <pre><code>python3 -m http.server 8080 --directory dist</code></pre>
+              </div>
+            </div>
+            <p class="closing-copy">
+              Test the built directory over HTTP, not by opening the file directly.
+              Module workers and Wasm imports are URL-based, so the deployed behavior
+              is closer to <code>python3 -m http.server --directory dist</code> than to
+              <code>file://</code>. After that, the only production step is serving the
+              same directory from GitHub Pages.
+            </p>
+          </div>
+        </section>
+      </article>
+
+      <section class="final-cta">
+        <p class="overline">Reference app</p>
+        <h2>Same model: static files outside, local engine inside.</h2>
+        <a class="button light" href="./index.html">Open the app</a>
+      </section>
+    </main>
+
+    <footer>
+      <a class="brand footer-brand" href="./index.html">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>Static Wasm App Notes</span>
+      </a>
+      <p>Generated with LLM assistance, then reviewed and edited for this project.</p>
+      <a href="#top">Back to top</a>
+    </footer>
+  </body>
+</html>
