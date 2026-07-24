@@ -18,17 +18,61 @@ const DEFAULT_CONFIG = {
   max_journey_duration_minutes: 1440,
 };
 const SERVER_GTFS_URL = "./data/gtfs.zip";
+const SETTINGS_STORAGE_KEY = "train-route-explorer-settings-v1";
+
+function listSetting(value, fallback = []) {
+  return Array.isArray(value) ? value.map(String).filter(Boolean).sort() : [...fallback];
+}
+
+function numericSetting(value, fallback, min = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(min, number) : fallback;
+}
+
+function normalizeStoredConfig(config = {}) {
+  const minTransfer = numericSetting(config.min_transfer_minutes, DEFAULT_CONFIG.min_transfer_minutes);
+  const maxTransfer = numericSetting(config.max_transfer_minutes, DEFAULT_CONFIG.max_transfer_minutes, minTransfer);
+  return {
+    local_origins: listSetting(config.local_origins, DEFAULT_CONFIG.local_origins),
+    connection_stations: listSetting(config.connection_stations, DEFAULT_CONFIG.connection_stations),
+    side_b_destinations: listSetting(config.side_b_destinations, DEFAULT_CONFIG.side_b_destinations),
+    train_types: listSetting(config.train_types, DEFAULT_CONFIG.train_types),
+    min_transfer_minutes: minTransfer,
+    max_transfer_minutes: Math.max(minTransfer, maxTransfer),
+    max_transfer_count: numericSetting(config.max_transfer_count, DEFAULT_CONFIG.max_transfer_count),
+    max_journey_duration_minutes: numericSetting(config.max_journey_duration_minutes, DEFAULT_CONFIG.max_journey_duration_minutes),
+  };
+}
+
+function loadStoredSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (!raw) return { found: false, config: structuredClone(DEFAULT_CONFIG) };
+    const saved = JSON.parse(raw);
+    return {
+      found: true,
+      config: normalizeStoredConfig(saved.config),
+      selectedTab: saved.selectedTab === "back" ? "back" : "out",
+      selectedDay: String(saved.selectedDay || "") || null,
+      highlights: listSetting(saved.highlights),
+    };
+  } catch (error) {
+    return { found: false, config: structuredClone(DEFAULT_CONFIG) };
+  }
+}
+
+const storedSettings = loadStoredSettings();
 
 const state = {
-  config: structuredClone(DEFAULT_CONFIG),
+  config: storedSettings.config,
   context: null,
   routes: { outward: [], returns: [], selected_day: null },
-  selectedTab: "out",
-  highlights: [],
-  highlightsInitialized: false,
+  selectedTab: storedSettings.selectedTab || "out",
+  highlights: storedSettings.highlights || [],
+  highlightsInitialized: storedSettings.found,
   highlightOptions: [],
   availableDays: [],
-  selectedDay: null,
+  selectedDay: storedSettings.selectedDay || null,
   settingsDirty: false,
 };
 
@@ -97,6 +141,19 @@ function readConfig() {
     max_transfer_count: Math.max(0, Number(els.maxTransferCount.value || 0)),
     max_journey_duration_minutes: Math.max(0, Number(els.maxDuration.value || 0)),
   };
+}
+
+function saveSettings() {
+  try {
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
+      config: state.config,
+      selectedTab: state.selectedTab,
+      selectedDay: state.selectedDay,
+      highlights: state.highlights,
+    }));
+  } catch (error) {
+    // Browser storage can be full or disabled; the app should still work for the current session.
+  }
 }
 
 function writeConfig(config) {
@@ -244,7 +301,7 @@ function defaultDay(days) {
 
 function populateContextControls(context) {
   state.availableDays = context.available_days || [];
-  state.selectedDay = defaultDay(state.availableDays);
+  state.selectedDay = state.availableDays.includes(state.selectedDay) ? state.selectedDay : defaultDay(state.availableDays);
   els.dayCalendar.min = gtfsToIsoDate(context.available_days[0] || "");
   els.dayCalendar.max = gtfsToIsoDate(context.available_days[context.available_days.length - 1] || "");
   els.dayCalendar.value = gtfsToIsoDate(state.selectedDay);
@@ -264,6 +321,7 @@ function populateContextControls(context) {
   renderTrainTypePicker(context.train_types || [], els.trainTypeFilter.value);
   renderHighlightPicker(els.highlightFilter.value);
   renderStationPickers(context.station_names || [], state.config);
+  saveSettings();
 }
 
 function requestRoutes() {
@@ -304,6 +362,8 @@ function setTimelinePlaceholder(message) {
 }
 
 function showRefreshNotice() {
+  state.config = readConfig();
+  saveSettings();
   if (!state.context) return;
   state.settingsDirty = true;
   state.routes = { outward: [], returns: [], selected_day: state.selectedDay };
@@ -319,6 +379,7 @@ function refreshRoutes() {
   if (!state.context) return;
   state.settingsDirty = false;
   state.config = readConfig();
+  saveSettings();
   setBusy(true);
   worker.postMessage({ type: "apply-config", config: state.config });
 }
@@ -384,6 +445,12 @@ function renderRoutes(result) {
   renderCurrentTab();
 }
 
+function syncSelectedTabButtons() {
+  for (const button of els.tabs.querySelectorAll("[data-tab]")) {
+    button.classList.toggle("selected", button.dataset.tab === state.selectedTab);
+  }
+}
+
 function showDetail(leg, event) {
   const stops = leg.journey_path || leg.path || [];
   const train = leg.train_number ? `${leg.train_type} ${leg.train_number}` : leg.train_type;
@@ -432,6 +499,12 @@ worker.onmessage = (event) => {
     setBusy(false);
     return;
   }
+  if (type === "no-source") {
+    setTimelinePlaceholder("Load a GTFS archive to build routes.");
+    setStatus("Waiting for GTFS archive.", 0, "idle");
+    setBusy(false);
+    return;
+  }
   if (type === "error") {
     setStatus(event.data.message, 0, "error");
     setBusy(false);
@@ -440,6 +513,7 @@ worker.onmessage = (event) => {
 
 els.bundledBtn.addEventListener("click", () => {
   state.config = readConfig();
+  saveSettings();
   setBusy(true);
   worker.postMessage({ type: "load-bundled", url: SERVER_GTFS_URL, config: state.config });
 });
@@ -451,6 +525,7 @@ els.uploadBtn.addEventListener("click", async () => {
     return;
   }
   state.config = readConfig();
+  saveSettings();
   setBusy(true);
   const buffer = await file.arrayBuffer();
   worker.postMessage(
@@ -466,6 +541,7 @@ els.dayCalendar.addEventListener("change", () => {
     return;
   }
   state.selectedDay = selected;
+  saveSettings();
   if (state.settingsDirty) {
     showRefreshNotice();
     return;
@@ -476,9 +552,8 @@ els.tabs.addEventListener("click", (event) => {
   const tab = event.target.closest("[data-tab]");
   if (!tab) return;
   state.selectedTab = tab.dataset.tab;
-  for (const button of els.tabs.querySelectorAll("[data-tab]")) {
-    button.classList.toggle("selected", button.dataset.tab === state.selectedTab);
-  }
+  syncSelectedTabButtons();
+  saveSettings();
   if (state.settingsDirty) {
     showRefreshNotice();
   } else {
@@ -507,6 +582,7 @@ els.trainTypeFilter.addEventListener("input", () => {
 els.trainTypes.addEventListener("change", (event) => {
   if (event.target instanceof HTMLInputElement) {
     state.config.train_types = syncSetValue(state.config.train_types, event.target);
+    saveSettings();
     renderTrainTypePicker(state.context?.train_types || [], els.trainTypeFilter.value);
     showRefreshNotice();
   }
@@ -517,6 +593,7 @@ els.highlightFilter.addEventListener("input", () => {
 els.highlights.addEventListener("change", (event) => {
   if (event.target instanceof HTMLInputElement) {
     state.highlights = syncSetValue(state.highlights, event.target);
+    saveSettings();
     renderHighlightPicker(els.highlightFilter.value);
     if (state.settingsDirty) {
       showRefreshNotice();
@@ -533,6 +610,7 @@ for (const [role, container] of [
   container.addEventListener("change", (event) => {
     if (event.target instanceof HTMLInputElement) {
       syncStationState(role, event.target);
+      saveSettings();
       renderStationPicker(role, state.context?.station_names || [], state.config, document.querySelector(`.station-filter[data-role="${role}"]`)?.value || "");
       renderHighlightPicker(els.highlightFilter.value);
       showRefreshNotice();
@@ -543,6 +621,10 @@ for (const input of [els.minTransfer, els.maxTransfer, els.maxTransferCount, els
   input.addEventListener("change", showRefreshNotice);
 }
 
-writeConfig(DEFAULT_CONFIG);
-setTimelinePlaceholder("Load a GTFS archive to build routes.");
-setStatus("Waiting for GTFS archive.", 0, "idle");
+writeConfig(state.config);
+syncSelectedTabButtons();
+saveSettings();
+setTimelinePlaceholder("Checking browser storage for a saved GTFS archive...");
+setStatus("Checking browser storage for a saved GTFS archive.", 5, "loading");
+setBusy(true);
+worker.postMessage({ type: "load-last-source", config: state.config });

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Client-side GTFS route timeline explorer."
 license = "MIT"
+repository = "https://github.com/bbodin/train-route-explorer"
 publish = false
 
 [lib]

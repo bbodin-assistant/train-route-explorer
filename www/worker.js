@@ -1,7 +1,10 @@
 import init, { build_context, routes_for_day } from "./pkg/train_route_explorer.js";
 
 const CACHE_DB = "train-route-explorer";
-const CACHE_STORE = "contexts";
+const DB_VERSION = 2;
+const CONTEXT_STORE = "contexts";
+const SOURCE_STORE = "sources";
+const LAST_SOURCE_KEY = "__last_source__";
 const CACHE_VERSION = "gtfs-context-v1";
 
 let wasmReady = false;
@@ -23,30 +26,35 @@ function post(type, payload = {}) {
 
 function openDb() {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(CACHE_DB, 1);
+    const request = indexedDB.open(CACHE_DB, DB_VERSION);
     request.onupgradeneeded = () => {
-      request.result.createObjectStore(CACHE_STORE);
+      if (!request.result.objectStoreNames.contains(CONTEXT_STORE)) {
+        request.result.createObjectStore(CONTEXT_STORE);
+      }
+      if (!request.result.objectStoreNames.contains(SOURCE_STORE)) {
+        request.result.createObjectStore(SOURCE_STORE);
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
 }
 
-async function cacheGet(key) {
+async function storeGet(storeName, key) {
   const db = await openDb();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(CACHE_STORE, "readonly");
-    const request = tx.objectStore(CACHE_STORE).get(key);
+    const tx = db.transaction(storeName, "readonly");
+    const request = tx.objectStore(storeName).get(key);
     request.onsuccess = () => resolve(request.result || null);
     request.onerror = () => reject(request.error);
   });
 }
 
-async function cacheSet(key, value) {
+async function storeSet(storeName, key, value) {
   const db = await openDb();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(CACHE_STORE, "readwrite");
-    tx.objectStore(CACHE_STORE).put(value, key);
+    const tx = db.transaction(storeName, "readwrite");
+    tx.objectStore(storeName).put(value, key);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -83,13 +91,63 @@ async function sha256(bytes) {
   return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+async function ensureSourceHash(bytes, meta) {
+  if (meta.hash) return meta.hash;
+  meta.hash = await sha256(bytes);
+  return meta.hash;
+}
+
 async function cacheKey(bytes, meta, config) {
-  const sourceHash = meta.hash || await sha256(bytes);
+  const sourceHash = await ensureSourceHash(bytes, meta);
+  const { sourceKey, ...cacheMeta } = meta;
   return JSON.stringify({
     version: CACHE_VERSION,
-    source: { ...meta, hash: sourceHash },
+    source: { ...cacheMeta, hash: sourceHash },
     config: buildConfigForCore(config),
   });
+}
+
+function sourceKeyForBundled(url) {
+  return `bundled:${url}`;
+}
+
+function sourceRecordBytes(record) {
+  if (record.bytes instanceof Uint8Array) return record.bytes;
+  return new Uint8Array(record.bytes);
+}
+
+async function loadStoredSource(sourceKey) {
+  const record = await storeGet(SOURCE_STORE, sourceKey);
+  if (!record || !record.bytes || !record.meta) return null;
+  return {
+    bytes: sourceRecordBytes(record),
+    meta: { ...record.meta, sourceKey },
+    stored: true,
+  };
+}
+
+async function loadLastStoredSource() {
+  const pointer = await storeGet(SOURCE_STORE, LAST_SOURCE_KEY);
+  if (!pointer?.sourceKey) return null;
+  return loadStoredSource(pointer.sourceKey);
+}
+
+async function storeSource(bytes, meta) {
+  const hash = await ensureSourceHash(bytes, meta);
+  const sourceKey = meta.sourceKey || (meta.kind === "bundled" ? sourceKeyForBundled(meta.url) : `upload:${hash}`);
+  const storedMeta = {
+    ...meta,
+    hash,
+    sourceKey,
+    size: bytes.byteLength,
+  };
+  await storeSet(SOURCE_STORE, sourceKey, {
+    bytes,
+    meta: storedMeta,
+    storedAt: new Date().toISOString(),
+  });
+  await storeSet(SOURCE_STORE, LAST_SOURCE_KEY, { sourceKey });
+  return storedMeta;
 }
 
 async function fetchArchive(url) {
@@ -108,6 +166,7 @@ async function fetchArchive(url) {
     meta: {
       kind: "bundled",
       url,
+      sourceKey: sourceKeyForBundled(url),
       size: buffer.byteLength,
       lastModified: response.headers.get("last-modified") || "",
     },
@@ -120,11 +179,12 @@ async function buildOrLoadContext(config) {
   }
   const key = await cacheKey(archiveBytes, sourceMeta, config);
   post("progress", { message: "Checking browser cache...", progress: 5 });
-  const cached = await cacheGet(key);
+  const cached = await storeGet(CONTEXT_STORE, key);
   if (cached) {
     activeContext = cached;
     activeConfig = config;
-    post("ready", { context: activeContext, cached: true });
+    sourceMeta = await storeSource(archiveBytes, sourceMeta);
+    post("ready", { context: activeContext, cached: true, source: sourceMeta });
     return;
   }
 
@@ -132,8 +192,9 @@ async function buildOrLoadContext(config) {
   activeContext = build_context(archiveBytes, buildConfigForCore(config));
   activeConfig = config;
   post("progress", { message: "Writing browser cache...", progress: 90 });
-  await cacheSet(key, activeContext);
-  post("ready", { context: activeContext, cached: false });
+  await storeSet(CONTEXT_STORE, key, activeContext);
+  sourceMeta = await storeSource(archiveBytes, sourceMeta);
+  post("ready", { context: activeContext, cached: false, source: sourceMeta });
 }
 
 function computeRoutes(day, overrides = {}) {
@@ -155,9 +216,28 @@ self.onmessage = async (event) => {
   const { type } = event.data;
   try {
     await ensureWasm();
+    if (type === "load-last-source") {
+      post("progress", { message: "Checking browser storage for a saved GTFS archive...", progress: 5 });
+      const stored = await loadLastStoredSource();
+      if (!stored) {
+        post("no-source");
+        return;
+      }
+      archiveBytes = stored.bytes;
+      sourceMeta = stored.meta;
+      post("progress", { message: "Loading saved GTFS archive from browser storage...", progress: 12 });
+      await buildOrLoadContext(normalizedConfig(event.data.config));
+      return;
+    }
     if (type === "load-bundled") {
-      post("progress", { message: "Downloading bundled GTFS archive...", progress: 10 });
-      const loaded = await fetchArchive(event.data.url);
+      const stored = await loadStoredSource(sourceKeyForBundled(event.data.url));
+      const loaded = stored || await (async () => {
+        post("progress", { message: "Downloading bundled GTFS archive...", progress: 10 });
+        return fetchArchive(event.data.url);
+      })();
+      if (stored) {
+        post("progress", { message: "Loading bundled GTFS archive from browser storage...", progress: 10 });
+      }
       archiveBytes = loaded.bytes;
       sourceMeta = loaded.meta;
       await buildOrLoadContext(normalizedConfig(event.data.config));

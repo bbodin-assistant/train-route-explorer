@@ -96,6 +96,19 @@ h3 {
   font-weight: 800;
 }
 
+.case-study-link {
+  display: inline-block;
+  margin-top: 8px;
+  color: #315f54;
+  font-size: 13px;
+  font-weight: 800;
+  text-underline-offset: 3px;
+}
+
+.case-study-link:hover {
+  text-decoration: underline;
+}
+
 .status,
 .source-panel,
 .config-panel,
