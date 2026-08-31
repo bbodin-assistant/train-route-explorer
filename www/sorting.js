@@ -65,6 +65,17 @@ const defaultRowsByGrid = new WeakMap();
 let enhancementFrame = null;
 
 function rowTimeMinutes(row) {
+  const firstTrain = row.querySelector(".timeline-bar.train[data-detail]");
+  if (firstTrain?.dataset.detail) {
+    try {
+      const leg = JSON.parse(decodeURIComponent(firstTrain.dataset.detail));
+      const departure = Number(leg.departure_minutes);
+      if (Number.isFinite(departure)) return departure;
+    } catch (error) {
+      // Fall back to the visible departure label if detail data is unavailable.
+    }
+  }
+
   const text = row.querySelector(".timeline-label-time")?.textContent.trim() || "";
   const match = text.match(/^(\d{1,2}):(\d{2})$/);
   return match ? Number(match[1]) * 60 + Number(match[2]) : Number.POSITIVE_INFINITY;
