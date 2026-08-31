@@ -352,7 +352,8 @@ function routeStations(itinerary) {
 
 function timelineLabel(prefix, itinerary, index) {
   const names = [itinerary.departure_stop, ...(itinerary.legs || []).map((leg) => leg.destination_stop)];
-  const text = `${prefix} ${index + 1}: ${names.join(" -> ")}`;
+  const duration = minutesToDuration(itinerary.total_duration_minutes);
+  const text = `${prefix} ${index + 1} (${duration}): ${names.join(" -> ")}`;
   const highlights = new Set(state.highlights);
   const stations = routeStations(itinerary);
   const matched = highlights.size > 0 && Array.from(highlights).every((station) => stations.has(station));
@@ -406,9 +407,9 @@ function refreshRoutes() {
   worker.postMessage({ type: "apply-config", config: state.config });
 }
 
-function renderTimeline(itineraries, prefix, title) {
+function renderTimeline(itineraries, prefix) {
   if (!itineraries.length) {
-    els.timeline.innerHTML = `<h3>${escapeHtml(title)}</h3><div class="timeline-empty">No matching connections for this day.</div>`;
+    els.timeline.innerHTML = `<div class="timeline-empty">No matching connections for this day.</div>`;
     return;
   }
   const ticks = Array.from({ length: 13 }, (_, index) => index * 120);
@@ -447,7 +448,6 @@ function renderTimeline(itineraries, prefix, title) {
     `;
   }).join("");
   els.timeline.innerHTML = `
-    <h3>${escapeHtml(title)}</h3>
     <div class="timeline-scale">${ticks.map((minute) => `<span style="left:${(minute / 1440) * 100}%">${clockLabel(minute)}</span>`).join("")}</div>
     <div class="timeline-grid">
       <div class="timeline-grid-lines" aria-hidden="true">${ticks.map((minute) => `<span style="left:${(minute / 1440) * 100}%"></span>`).join("")}</div>
@@ -457,11 +457,10 @@ function renderTimeline(itineraries, prefix, title) {
 }
 
 function renderCurrentTab() {
-  const labels = directionLabels();
   if (state.selectedTab === "back") {
-    renderTimeline(state.routes.returns || [], "Back", `${labels.back} timeline - ${state.routes.selected_day || ""}`);
+    renderTimeline(state.routes.returns || [], "Back");
   } else {
-    renderTimeline(state.routes.outward || [], "Out", `${labels.out} timeline - ${state.routes.selected_day || ""}`);
+    renderTimeline(state.routes.outward || [], "Out");
   }
 }
 

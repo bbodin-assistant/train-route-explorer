@@ -224,6 +224,8 @@ async function main() {
     })()`), { timeoutMs: 120_000, message: "timeline chart to render" });
     assert(timelineGuides.lines.length === timelineGuides.labels.length, "Each timeline label should have a vertical guide");
     assert(timelineGuides.lines.every((left, index) => Math.abs(left - timelineGuides.labels[index]) < 1), "Timeline guides should align with their time labels");
+    assert(await page.eval(`document.querySelector("#routes-time-chart > h3") === null`), "Timeline should not render a route/date title");
+    assert(await page.eval(`Array.from(document.querySelectorAll(".timeline-label")).every((label) => /\\(\\d+(?:h\\d{2}|m)\\)/.test(label.textContent))`), "Every timeline row should show its total journey duration");
 
     const unrestrictedTransfers = await page.eval(`(() => {
       let box = document.querySelector("#config-connection-stations input[type='checkbox']:checked");
