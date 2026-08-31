@@ -413,6 +413,22 @@ h3 {
   color: #172033;
 }
 
+.timeline-label-main,
+.timeline-label-via {
+  display: block;
+}
+
+.timeline-label-main.highlighted {
+  box-shadow: inset 3px 0 #eab308;
+  padding-left: 6px;
+}
+
+.timeline-label-via {
+  margin-top: 3px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
 .timeline-lane {
   position: relative;
   height: 38px;

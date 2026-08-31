@@ -350,14 +350,17 @@ function routeStations(itinerary) {
   return stations;
 }
 
-function timelineLabel(prefix, itinerary, index) {
+function timelineLabel(itinerary) {
   const names = [itinerary.departure_stop, ...(itinerary.legs || []).map((leg) => leg.destination_stop)];
   const duration = minutesToDuration(itinerary.total_duration_minutes);
-  const text = `${prefix} ${index + 1} (${duration}): ${names.join(" -> ")}`;
   const highlights = new Set(state.highlights);
   const stations = routeStations(itinerary);
   const matched = highlights.size > 0 && Array.from(highlights).every((station) => stations.has(station));
-  return matched ? `<b>${escapeHtml(text)}</b>` : escapeHtml(text);
+  const via = names.slice(1, -1);
+  return `
+    <span class="timeline-label-main${matched ? " highlighted" : ""}">${escapeHtml(names[0])} → ${escapeHtml(names.at(-1))} (<strong>${escapeHtml(duration)}</strong>)</span>
+    ${via.length ? `<span class="timeline-label-via">via ${via.map(escapeHtml).join(", ")}</span>` : ""}
+  `;
 }
 
 function trainTypeClass(type) {
@@ -407,7 +410,7 @@ function refreshRoutes() {
   worker.postMessage({ type: "apply-config", config: state.config });
 }
 
-function renderTimeline(itineraries, prefix) {
+function renderTimeline(itineraries) {
   if (!itineraries.length) {
     els.timeline.innerHTML = `<div class="timeline-empty">No matching connections for this day.</div>`;
     return;
@@ -442,7 +445,7 @@ function renderTimeline(itineraries, prefix) {
     }).join("");
     return `
       <div class="timeline-row">
-        <div class="timeline-label">${timelineLabel(prefix, itinerary, rowIndex)}</div>
+        <div class="timeline-label">${timelineLabel(itinerary)}</div>
         <div class="timeline-lane">${bars}</div>
       </div>
     `;
@@ -458,9 +461,9 @@ function renderTimeline(itineraries, prefix) {
 
 function renderCurrentTab() {
   if (state.selectedTab === "back") {
-    renderTimeline(state.routes.returns || [], "Back");
+    renderTimeline(state.routes.returns || []);
   } else {
-    renderTimeline(state.routes.outward || [], "Out");
+    renderTimeline(state.routes.outward || []);
   }
 }
 
