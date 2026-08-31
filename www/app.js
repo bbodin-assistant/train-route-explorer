@@ -98,6 +98,7 @@ const els = {
   maxTransferCount: $("#config-max-transfer-count"),
   maxDuration: $("#config-max-duration"),
   dayCalendar: $("#day-calendar"),
+  todayBtn: $("#today-button"),
   highlightFilter: $("#highlight-filter"),
   highlights: $("#highlight-stations"),
   tabs: $("#route-direction-tabs"),
@@ -175,8 +176,9 @@ function setBusy(isBusy) {
     els.bundledBtn,
     els.uploadBtn,
     els.dayCalendar,
+    els.todayBtn,
   ]) {
-    element.disabled = isBusy || (element === els.dayCalendar && !state.context);
+    element.disabled = isBusy || ([els.dayCalendar, els.todayBtn].includes(element) && !state.context);
   }
 }
 
@@ -292,10 +294,14 @@ function directionLabels() {
   };
 }
 
+function todayGtfsDate() {
+  const now = new Date();
+  return `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+}
+
 function defaultDay(days) {
   if (!days.length) return "";
-  const now = new Date();
-  const today = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+  const today = todayGtfsDate();
   return days.includes(today) ? today : days[0];
 }
 
@@ -427,7 +433,10 @@ function renderTimeline(itineraries, prefix, title) {
   els.timeline.innerHTML = `
     <h3>${escapeHtml(title)}</h3>
     <div class="timeline-scale">${ticks.map((minute) => `<span style="left:${(minute / 1440) * 100}%">${clockLabel(minute)}</span>`).join("")}</div>
-    <div class="timeline-grid">${rows}</div>
+    <div class="timeline-grid">
+      <div class="timeline-grid-lines" aria-hidden="true">${ticks.map((minute) => `<span style="left:${(minute / 1440) * 100}%"></span>`).join("")}</div>
+      ${rows}
+    </div>
   `;
 }
 
@@ -538,6 +547,7 @@ els.dayCalendar.addEventListener("change", () => {
   const selected = isoToGtfsDate(els.dayCalendar.value);
   if (!state.availableDays.includes(selected)) {
     setStatus("No service matching route settings for the selected calendar day.", 0, "error");
+    els.dayCalendar.value = gtfsToIsoDate(state.selectedDay);
     return;
   }
   state.selectedDay = selected;
@@ -547,6 +557,15 @@ els.dayCalendar.addEventListener("change", () => {
     return;
   }
   requestRoutes();
+});
+els.todayBtn.addEventListener("click", () => {
+  const today = todayGtfsDate();
+  if (!state.availableDays.includes(today)) {
+    setStatus("No service matching route settings is available today.", 0, "error");
+    return;
+  }
+  els.dayCalendar.value = gtfsToIsoDate(today);
+  els.dayCalendar.dispatchEvent(new Event("change", { bubbles: true }));
 });
 els.tabs.addEventListener("click", (event) => {
   const tab = event.target.closest("[data-tab]");

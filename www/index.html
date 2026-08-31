@@ -58,10 +58,13 @@
       </section>
 
       <section class="time-config-panel">
-        <label>
-          Day
-          <input id="day-calendar" type="date" disabled />
-        </label>
+        <div class="day-control">
+          <label for="day-calendar">Day</label>
+          <div class="day-input-row">
+            <input id="day-calendar" type="date" disabled />
+            <button id="today-button" type="button" disabled>Today</button>
+          </div>
+        </div>
         <label>
           Minimum transfer time
           <input id="config-min-transfer" type="number" min="0" step="1" />

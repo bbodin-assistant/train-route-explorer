@@ -248,6 +248,18 @@ h3 {
   align-self: end;
 }
 
+.day-control {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.day-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
 .dashboard-controls {
   display: flex;
   gap: 12px;
@@ -283,6 +295,8 @@ h3 {
 }
 
 .timeline {
+  --timeline-label-width: 250px;
+  --timeline-lane-min-width: 820px;
   position: relative;
   padding: 14px;
   min-height: 560px;
@@ -317,8 +331,8 @@ h3 {
 .timeline-scale {
   position: relative;
   height: 28px;
-  margin-left: 250px;
-  min-width: 820px;
+  margin-left: var(--timeline-label-width);
+  min-width: var(--timeline-lane-min-width);
   border-bottom: 1px solid #e1e7ef;
 }
 
@@ -330,12 +344,27 @@ h3 {
 }
 
 .timeline-grid {
-  min-width: 1080px;
+  position: relative;
+  min-width: calc(var(--timeline-label-width) + var(--timeline-lane-min-width));
+}
+
+.timeline-grid-lines {
+  position: absolute;
+  inset: 0 0 0 var(--timeline-label-width);
+  pointer-events: none;
+}
+
+.timeline-grid-lines span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid #e2e8f0;
 }
 
 .timeline-row {
+  position: relative;
   display: grid;
-  grid-template-columns: 250px minmax(820px, 1fr);
+  grid-template-columns: var(--timeline-label-width) minmax(var(--timeline-lane-min-width), 1fr);
   align-items: center;
   min-height: 54px;
   border-bottom: 1px solid #eef2f6;
@@ -481,11 +510,8 @@ h3 {
     grid-template-columns: 1fr;
   }
 
-  .timeline-row {
-    grid-template-columns: 180px minmax(720px, 1fr);
-  }
-
-  .timeline-scale {
-    margin-left: 180px;
+  .timeline {
+    --timeline-label-width: 180px;
+    --timeline-lane-min-width: 720px;
   }
 }

@@ -160,10 +160,18 @@ async function main() {
 
     assert(await page.eval(`document.querySelector("h1")?.textContent`) === "Train Route Explorer", "Page header should render");
     assert(await page.eval(`document.querySelector("#config-apply") === null`), "Old apply route settings button should not render");
-    assert(await page.eval(`document.querySelector(".time-config-panel label:first-child input")?.id === "day-calendar"`), "Day selector should be first in the time settings panel");
+    assert(await page.eval(`document.querySelector(".time-config-panel > :first-child #day-calendar")?.id === "day-calendar"`), "Day selector should be first in the time settings panel");
+    assert(await page.eval(`document.querySelector("#today-button")?.textContent`) === "Today", "Today button should render beside the day selector");
 
     await page.eval(`document.querySelector("#load-bundled").click()`);
-    await waitFor(async () => page.eval(`document.querySelector("#cache-status-text")?.textContent.includes("Cache ready")`), {
+    await waitFor(async () => {
+      const status = await page.eval(`({
+        text: document.querySelector("#cache-status-text")?.textContent || "",
+        isError: document.querySelector("#cache-status")?.classList.contains("error") || false
+      })`);
+      if (status.isError) throw new Error(status.text);
+      return status.text.includes("Cache ready");
+    }, {
       timeoutMs: 120_000,
       message: "GTFS context to be ready",
     });
@@ -178,6 +186,14 @@ async function main() {
     assert(loadedCounts.trainTypeCount > 0, "Train type checkbox list should populate");
     assert(loadedCounts.highlightCount > 0, "Highlights checkbox list should populate");
     assert(Boolean(loadedCounts.dayValue), "Calendar day should be selected after load");
+
+    const timelineGuides = await waitFor(async () => page.eval(`(() => {
+      const labels = Array.from(document.querySelectorAll(".timeline-scale span")).map((node) => node.getBoundingClientRect().left);
+      const lines = Array.from(document.querySelectorAll(".timeline-grid-lines span")).map((node) => node.getBoundingClientRect().left);
+      return labels.length ? { labels, lines } : null;
+    })()`), { timeoutMs: 120_000, message: "timeline chart to render" });
+    assert(timelineGuides.lines.length === timelineGuides.labels.length, "Each timeline label should have a vertical guide");
+    assert(timelineGuides.lines.every((left, index) => Math.abs(left - timelineGuides.labels[index]) < 1), "Timeline guides should align with their time labels");
 
     async function assertSelectedFirst(containerSelector, label) {
       const result = await page.eval(`(() => {
