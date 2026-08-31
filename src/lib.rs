@@ -80,6 +80,28 @@ struct Segment {
     journey_path: Vec<StopPoint>,
 }
 
+#[derive(Debug, Clone)]
+struct TripJourney {
+    trip_id: String,
+    service_id: String,
+    route_id: String,
+    train_type: String,
+    train_number: String,
+    stops: Vec<StopPoint>,
+}
+
+impl TripJourney {
+    fn len(&self) -> usize {
+        self.stops.len()
+    }
+
+    fn stop_point(&self, index: usize, in_segment: bool) -> StopPoint {
+        let mut stop = self.stops[index].clone();
+        stop.in_segment = in_segment;
+        stop
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Leg {
     trip_id: String,
@@ -147,6 +169,12 @@ struct RouteContext {
     side_b_to_local: Vec<Segment>,
     side_b_to_connection: Vec<Segment>,
     connection_to_local: Vec<Segment>,
+    #[serde(default, with = "serde_bytes")]
+    unrestricted_transfer_data: Vec<u8>,
+    #[serde(default)]
+    unrestricted_origins: Vec<String>,
+    #[serde(default)]
+    unrestricted_destinations: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -475,14 +503,331 @@ fn find_trip_segments(
     segments
 }
 
-fn active_segments(segments: &[Segment], service_days: &BTreeMap<String, Vec<String>>, day: &str) -> Vec<Segment> {
-    let active = service_days
+fn write_string(buffer: &mut Vec<u8>, value: &str) {
+    let bytes = value.as_bytes();
+    buffer.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+    buffer.extend_from_slice(bytes);
+}
+
+#[cfg(test)]
+fn encode_trip_journeys(trips: &[TripJourney]) -> Vec<u8> {
+    let mut buffer = Vec::new();
+    buffer.extend_from_slice(&(trips.len() as u32).to_le_bytes());
+    for trip in trips {
+        write_string(&mut buffer, &trip.trip_id);
+        write_string(&mut buffer, &trip.service_id);
+        write_string(&mut buffer, &trip.route_id);
+        write_string(&mut buffer, &trip.train_type);
+        write_string(&mut buffer, &trip.train_number);
+        buffer.extend_from_slice(&(trip.stops.len() as u32).to_le_bytes());
+        for stop in &trip.stops {
+            write_string(&mut buffer, &stop.stop_name);
+            write_string(&mut buffer, &stop.arrival_time);
+            write_string(&mut buffer, &stop.departure_time);
+            buffer.extend_from_slice(&stop.arrival_minutes.to_le_bytes());
+            buffer.extend_from_slice(&stop.departure_minutes.to_le_bytes());
+            buffer.extend_from_slice(&stop.lat.to_le_bytes());
+            buffer.extend_from_slice(&stop.lon.to_le_bytes());
+        }
+    }
+    buffer
+}
+
+fn encode_unrestricted_trip_journeys(
+    trips: &HashMap<String, Vec<EnrichedStop>>,
+    train_types: &Option<HashSet<String>>,
+) -> Vec<u8> {
+    let mut selected = trips
+        .iter()
+        .filter(|(_, rows)| {
+            rows.first().is_some_and(|first| {
+                train_types
+                    .as_ref()
+                    .is_none_or(|types| types.contains(&first.train_type))
+            })
+        })
+        .collect::<Vec<_>>();
+    selected.sort_by(|(left, _), (right, _)| left.cmp(right));
+
+    let mut buffer = Vec::new();
+    buffer.extend_from_slice(&(selected.len() as u32).to_le_bytes());
+    for (trip_id, rows) in selected {
+        let first = &rows[0];
+        write_string(&mut buffer, trip_id);
+        write_string(&mut buffer, &first.service_id);
+        write_string(&mut buffer, &first.route_id);
+        write_string(&mut buffer, &first.train_type);
+        write_string(&mut buffer, &first.train_number);
+        buffer.extend_from_slice(&(rows.len() as u32).to_le_bytes());
+        for stop in rows {
+            write_string(&mut buffer, &stop.stop_name);
+            write_string(&mut buffer, &stop.arrival_time);
+            write_string(&mut buffer, &stop.departure_time);
+            buffer.extend_from_slice(&stop.arrival_minutes.to_le_bytes());
+            buffer.extend_from_slice(&stop.departure_minutes.to_le_bytes());
+            buffer.extend_from_slice(&stop.lat.to_le_bytes());
+            buffer.extend_from_slice(&stop.lon.to_le_bytes());
+        }
+    }
+    buffer
+}
+
+struct ByteReader<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> ByteReader<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, offset: 0 }
+    }
+
+    fn read<const N: usize>(&mut self) -> Result<[u8; N], String> {
+        let end = self
+            .offset
+            .checked_add(N)
+            .filter(|end| *end <= self.bytes.len())
+            .ok_or_else(|| "Invalid unrestricted transfer data".to_string())?;
+        let value = self.bytes[self.offset..end]
+            .try_into()
+            .map_err(|_| "Invalid unrestricted transfer data".to_string())?;
+        self.offset = end;
+        Ok(value)
+    }
+
+    fn u32(&mut self) -> Result<u32, String> {
+        Ok(u32::from_le_bytes(self.read()?))
+    }
+
+    fn i32(&mut self) -> Result<i32, String> {
+        Ok(i32::from_le_bytes(self.read()?))
+    }
+
+    fn f64(&mut self) -> Result<f64, String> {
+        Ok(f64::from_le_bytes(self.read()?))
+    }
+
+    fn string(&mut self) -> Result<String, String> {
+        let length = self.u32()? as usize;
+        let end = self
+            .offset
+            .checked_add(length)
+            .filter(|end| *end <= self.bytes.len())
+            .ok_or_else(|| "Invalid unrestricted transfer data".to_string())?;
+        let value = std::str::from_utf8(&self.bytes[self.offset..end])
+            .map_err(|_| "Invalid UTF-8 in unrestricted transfer data".to_string())?
+            .to_string();
+        self.offset = end;
+        Ok(value)
+    }
+}
+
+fn decode_trip_journeys(data: &[u8]) -> Result<Vec<TripJourney>, String> {
+    if data.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut reader = ByteReader::new(data);
+    let trip_count = reader.u32()? as usize;
+    let mut trips = Vec::with_capacity(trip_count);
+    for _ in 0..trip_count {
+        let trip_id = reader.string()?;
+        let service_id = reader.string()?;
+        let route_id = reader.string()?;
+        let train_type = reader.string()?;
+        let train_number = reader.string()?;
+        let stop_count = reader.u32()? as usize;
+        let mut stops = Vec::with_capacity(stop_count);
+        for _ in 0..stop_count {
+            stops.push(StopPoint {
+                stop_name: reader.string()?,
+                arrival_time: reader.string()?,
+                departure_time: reader.string()?,
+                arrival_minutes: reader.i32()?,
+                departure_minutes: reader.i32()?,
+                lat: reader.f64()?,
+                lon: reader.f64()?,
+                in_segment: false,
+            });
+        }
+        trips.push(TripJourney {
+            trip_id,
+            service_id,
+            route_id,
+            train_type,
+            train_number,
+            stops,
+        });
+    }
+    if reader.offset != data.len() {
+        return Err("Invalid trailing unrestricted transfer data".to_string());
+    }
+    Ok(trips)
+}
+
+fn segment_from_journey(trip: &TripJourney, start_index: usize, end_index: usize) -> Segment {
+    let first = trip.stop_point(start_index, true);
+    let last = trip.stop_point(end_index, true);
+    let path = (start_index..=end_index)
+        .map(|index| trip.stop_point(index, true))
+        .collect();
+    let journey_path = (0..trip.len())
+        .map(|index| trip.stop_point(index, index >= start_index && index <= end_index))
+        .collect();
+    Segment {
+        trip_id: trip.trip_id.clone(),
+        service_id: trip.service_id.clone(),
+        route_id: trip.route_id.clone(),
+        train_type: trip.train_type.clone(),
+        train_number: trip.train_number.clone(),
+        departure_stop: first.stop_name,
+        destination_stop: last.stop_name,
+        departure_time: first.departure_time,
+        arrival_time: last.arrival_time,
+        departure_minutes: first.departure_minutes,
+        arrival_minutes: last.arrival_minutes,
+        path,
+        journey_path,
+    }
+}
+
+struct UnrestrictedTransferIndex<'a> {
+    trips: &'a [TripJourney],
+    boardings: HashMap<String, Vec<(usize, usize)>>,
+}
+
+impl<'a> UnrestrictedTransferIndex<'a> {
+    fn new(trips: &'a [TripJourney], active_services: &HashSet<String>) -> Self {
+        let mut boardings: HashMap<String, Vec<(usize, usize)>> = HashMap::new();
+        for (trip_index, trip) in trips.iter().enumerate() {
+            if !active_services.contains(&trip.service_id) {
+                continue;
+            }
+            for (stop_index, stop) in trip
+                .stops
+                .iter()
+                .enumerate()
+                .take(trip.len().saturating_sub(1))
+            {
+                boardings
+                    .entry(stop.stop_name.clone())
+                    .or_default()
+                    .push((trip_index, stop_index));
+            }
+        }
+        for values in boardings.values_mut() {
+            values.sort_by(|(left_trip, left_stop), (right_trip, right_stop)| {
+                let left = &trips[*left_trip];
+                let right = &trips[*right_trip];
+                (
+                    left.stops[*left_stop].departure_minutes,
+                    left.trip_id.as_str(),
+                    *left_stop,
+                )
+                    .cmp(&(
+                        right.stops[*right_stop].departure_minutes,
+                        right.trip_id.as_str(),
+                        *right_stop,
+                    ))
+            });
+        }
+        Self { trips, boardings }
+    }
+
+    fn starting_segments(&self, origins: &[String]) -> Vec<Segment> {
+        let mut segments = Vec::new();
+        for origin in origins.iter().collect::<HashSet<_>>() {
+            for &(trip_index, start_index) in self
+                .boardings
+                .get(origin)
+                .map(Vec::as_slice)
+                .unwrap_or_default()
+            {
+                let trip = &self.trips[trip_index];
+                for end_index in start_index + 1..trip.len() {
+                    segments.push(segment_from_journey(trip, start_index, end_index));
+                }
+            }
+        }
+        segments.sort_by_key(|segment| (segment.arrival_minutes, segment.departure_minutes));
+        segments
+    }
+
+    fn valid_segments(
+        &self,
+        previous: &Leg,
+        min_transfer: i32,
+        max_transfer: i32,
+        destinations: Option<&HashSet<String>>,
+    ) -> Vec<Segment> {
+        let min_departure = previous.arrival_minutes + min_transfer;
+        let max_departure = previous.arrival_minutes + max_transfer;
+        let mut segments = Vec::new();
+        for &(trip_index, start_index) in self
+            .boardings
+            .get(&previous.destination_stop)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+        {
+            let trip = &self.trips[trip_index];
+            let departure = trip.stops[start_index].departure_minutes;
+            if departure > max_departure {
+                break;
+            }
+            if departure < min_departure || trip.trip_id == previous.trip_id {
+                continue;
+            }
+            for end_index in start_index + 1..trip.len() {
+                if destinations.is_some_and(|values| !values.contains(&trip.stops[end_index].stop_name)) {
+                    continue;
+                }
+                segments.push(segment_from_journey(trip, start_index, end_index));
+            }
+        }
+        segments.sort_by(|left, right| {
+            (
+                left.departure_minutes,
+                left.arrival_minutes,
+                left.destination_stop.as_str(),
+                left.train_type.as_str(),
+                left.trip_id.as_str(),
+            )
+                .cmp(&(
+                    right.departure_minutes,
+                    right.arrival_minutes,
+                    right.destination_stop.as_str(),
+                    right.train_type.as_str(),
+                    right.trip_id.as_str(),
+                ))
+        });
+        segments
+    }
+
+    fn valid_next_segments(&self, previous: &Leg, min_transfer: i32, max_transfer: i32) -> Vec<Segment> {
+        self.valid_segments(previous, min_transfer, max_transfer, None)
+    }
+
+    fn valid_final_segments(
+        &self,
+        previous: &Leg,
+        min_transfer: i32,
+        max_transfer: i32,
+        destinations: &HashSet<String>,
+    ) -> Vec<Segment> {
+        self.valid_segments(previous, min_transfer, max_transfer, Some(destinations))
+    }
+}
+
+fn active_service_ids(service_days: &BTreeMap<String, Vec<String>>, day: &str) -> HashSet<String> {
+    service_days
         .get(day)
         .map(|services| services.iter().cloned().collect::<HashSet<_>>())
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+fn active_segments(segments: &[Segment], active_services: &HashSet<String>) -> Vec<Segment> {
     segments
         .iter()
-        .filter(|segment| active.contains(&segment.service_id))
+        .filter(|segment| active_services.contains(&segment.service_id))
         .cloned()
         .collect()
 }
@@ -618,6 +963,9 @@ fn build_itineraries(
     direct_segments: Vec<Segment>,
     first_leg_segments: Vec<Segment>,
     transfer_segments: Vec<Segment>,
+    unrestricted_transfers: Option<&UnrestrictedTransferIndex<'_>>,
+    unrestricted_origins: &[String],
+    unrestricted_destinations: &[String],
     final_leg_segments: Vec<Segment>,
     selected_day: &str,
     direction: &str,
@@ -628,6 +976,10 @@ fn build_itineraries(
     let max_duration = request.max_journey_duration_minutes.max(0);
     let max_transfers = request.max_transfer_count;
     let mut records = Vec::new();
+    let first_leg_segments = unrestricted_transfers
+        .map(|index| index.starting_segments(unrestricted_origins))
+        .unwrap_or(first_leg_segments);
+    let unrestricted_destination_set = unrestricted_destinations.iter().cloned().collect::<HashSet<_>>();
 
     for direct in direct_segments {
         if let Some(record) = itinerary_record(vec![segment_to_leg(&direct)], selected_day, direction, max_duration) {
@@ -662,6 +1014,8 @@ fn build_itineraries(
         visited: HashSet<String>,
         final_by_departure: &HashMap<String, Vec<Segment>>,
         transfer_by_departure: &HashMap<String, Vec<Segment>>,
+        unrestricted_transfers: Option<&UnrestrictedTransferIndex<'_>>,
+        unrestricted_destinations: &HashSet<String>,
         selected_day: &str,
         direction: &str,
         request: &RouteRequest,
@@ -680,47 +1034,61 @@ fn build_itineraries(
         if current.arrival_minutes - legs[0].departure_minutes > max_duration {
             return;
         }
-        if let Some(final_candidates) = final_by_departure.get(&current.destination_stop) {
-            for final_segment in valid_next_segments(final_candidates, current, min_transfer, max_transfer) {
-                let mut next_legs = legs.clone();
-                next_legs.push(segment_to_leg(&final_segment));
-                if let Some(record) = itinerary_record(next_legs, selected_day, direction, max_duration) {
-                    records.push(record);
-                    if records.len() >= MAX_ITINERARY_RECORDS {
-                        return;
-                    }
+        let final_candidates = if let Some(index) = unrestricted_transfers {
+            index.valid_final_segments(current, min_transfer, max_transfer, unrestricted_destinations)
+        } else {
+            final_by_departure
+                .get(&current.destination_stop)
+                .map(|candidates| valid_next_segments(candidates, current, min_transfer, max_transfer))
+                .unwrap_or_default()
+        };
+        for final_segment in final_candidates {
+            let mut next_legs = legs.clone();
+            next_legs.push(segment_to_leg(&final_segment));
+            if let Some(record) = itinerary_record(next_legs, selected_day, direction, max_duration) {
+                records.push(record);
+                if records.len() >= MAX_ITINERARY_RECORDS {
+                    return;
                 }
             }
         }
         if legs.len() >= max_transfers {
             return;
         }
-        if let Some(middle_candidates) = transfer_by_departure.get(&current.destination_stop) {
-            for middle in valid_next_segments(middle_candidates, current, min_transfer, max_transfer) {
-                if middle.departure_stop == middle.destination_stop || visited.contains(&middle.destination_stop) {
-                    continue;
-                }
-                let mut next_visited = visited.clone();
-                next_visited.insert(middle.destination_stop.clone());
-                let mut next_legs = legs.clone();
-                next_legs.push(segment_to_leg(&middle));
-                extend(
-                    records,
-                    next_legs,
-                    next_visited,
-                    final_by_departure,
-                    transfer_by_departure,
-                    selected_day,
-                    direction,
-                    request,
-                    min_transfer,
-                    max_transfer,
-                    max_duration,
-                    max_transfers,
-                );
-                if records.len() >= MAX_ITINERARY_RECORDS {
-                    return;
-                }
+        let middle_candidates = if let Some(index) = unrestricted_transfers {
+            index.valid_next_segments(current, min_transfer, max_transfer)
+        } else {
+            transfer_by_departure
+                .get(&current.destination_stop)
+                .map(|candidates| valid_next_segments(candidates, current, min_transfer, max_transfer))
+                .unwrap_or_default()
+        };
+        for middle in middle_candidates {
+            if middle.departure_stop == middle.destination_stop || visited.contains(&middle.destination_stop) {
+                continue;
+            }
+            let mut next_visited = visited.clone();
+            next_visited.insert(middle.destination_stop.clone());
+            let mut next_legs = legs.clone();
+            next_legs.push(segment_to_leg(&middle));
+            extend(
+                records,
+                next_legs,
+                next_visited,
+                final_by_departure,
+                transfer_by_departure,
+                unrestricted_transfers,
+                unrestricted_destinations,
+                selected_day,
+                direction,
+                request,
+                min_transfer,
+                max_transfer,
+                max_duration,
+                max_transfers,
+            );
+            if records.len() >= MAX_ITINERARY_RECORDS {
+                return;
             }
         }
     }
@@ -738,6 +1106,8 @@ fn build_itineraries(
                 visited,
                 &final_by_departure,
                 &transfer_by_departure,
+                unrestricted_transfers,
+                &unrestricted_destination_set,
                 selected_day,
                 direction,
                 request,
@@ -756,8 +1126,23 @@ fn build_itineraries(
     records
 }
 
+fn matching_service_days(
+    service_days: &BTreeMap<String, Vec<String>>,
+    matching_services: &HashSet<String>,
+) -> Vec<String> {
+    service_days
+        .iter()
+        .filter_map(|(day, services)| {
+            services
+                .iter()
+                .any(|service| matching_services.contains(service))
+                .then_some(day.clone())
+        })
+        .collect()
+}
+
 fn matching_days(context: &RouteContext) -> Vec<String> {
-    let all_services = [
+    let matching_services = [
         &context.local_to_connection,
         &context.local_to_side_b,
         &context.connection_to_side_b,
@@ -769,38 +1154,26 @@ fn matching_days(context: &RouteContext) -> Vec<String> {
     .iter()
     .flat_map(|segments| segments.iter().map(|segment| segment.service_id.clone()))
     .collect::<HashSet<_>>();
-    context
-        .service_days
-        .iter()
-        .filter_map(|(day, services)| {
-            services
-                .iter()
-                .any(|service| all_services.contains(service))
-                .then_some(day.clone())
-        })
-        .collect()
+    matching_service_days(&context.service_days, &matching_services)
 }
 
-#[wasm_bindgen]
-pub fn build_context(bytes: &[u8], config_value: JsValue) -> Result<JsValue, JsValue> {
-    let config: BuildConfig = from_js(config_value)?;
+fn build_context_data(bytes: &[u8], config: BuildConfig) -> Result<RouteContext, String> {
+    let stops_rows = read_zip_csv(bytes, "stops.txt")?;
+    let stop_times_rows = read_zip_csv(bytes, "stop_times.txt")?;
+    let trips_rows = read_zip_csv(bytes, "trips.txt")?;
+    let routes_rows = read_zip_csv(bytes, "routes.txt")?;
+    let calendar_rows = read_zip_csv(bytes, "calendar_dates.txt")?;
 
-    let stops_rows = read_zip_csv(bytes, "stops.txt").map_err(js_error)?;
-    let stop_times_rows = read_zip_csv(bytes, "stop_times.txt").map_err(js_error)?;
-    let trips_rows = read_zip_csv(bytes, "trips.txt").map_err(js_error)?;
-    let routes_rows = read_zip_csv(bytes, "routes.txt").map_err(js_error)?;
-    let calendar_rows = read_zip_csv(bytes, "calendar_dates.txt").map_err(js_error)?;
-
-    require_columns(&stops_rows, "stops.txt", &["stop_id", "stop_name", "stop_lat", "stop_lon"]).map_err(js_error)?;
+    require_columns(&stops_rows, "stops.txt", &["stop_id", "stop_name", "stop_lat", "stop_lon"])?;
     require_columns(
         &stop_times_rows,
         "stop_times.txt",
         &["trip_id", "arrival_time", "departure_time", "stop_id", "stop_sequence"],
     )
-    .map_err(js_error)?;
-    require_columns(&trips_rows, "trips.txt", &["route_id", "service_id", "trip_id", "trip_headsign"]).map_err(js_error)?;
-    require_columns(&routes_rows, "routes.txt", &["route_id", "route_short_name", "route_long_name"]).map_err(js_error)?;
-    require_columns(&calendar_rows, "calendar_dates.txt", &["service_id", "date", "exception_type"]).map_err(js_error)?;
+    ?;
+    require_columns(&trips_rows, "trips.txt", &["route_id", "service_id", "trip_id", "trip_headsign"])?;
+    require_columns(&routes_rows, "routes.txt", &["route_id", "route_short_name", "route_long_name"])?;
+    require_columns(&calendar_rows, "calendar_dates.txt", &["service_id", "date", "exception_type"])?;
 
     let mut stops = HashMap::new();
     let mut station_names = BTreeSet::new();
@@ -896,14 +1269,49 @@ pub fn build_context(bytes: &[u8], config_value: JsValue) -> Result<JsValue, JsV
 
     let train_types = selected_train_types(&config);
     let all_station_names = station_names.iter().cloned().collect::<Vec<_>>();
-    let connection_stations = if config.connection_stations.is_empty() {
+    let unrestricted_connections = config.connection_stations.is_empty();
+    let connection_stations = if unrestricted_connections {
         all_station_names.as_slice()
     } else {
         config.connection_stations.as_slice()
     };
-    let mut connection_to_connection =
-        find_trip_segments(&by_trip, connection_stations, connection_stations, &train_types);
+    let mut connection_to_connection = if unrestricted_connections {
+        Vec::new()
+    } else {
+        find_trip_segments(&by_trip, connection_stations, connection_stations, &train_types)
+    };
     connection_to_connection.retain(|segment| segment.departure_stop != segment.destination_stop);
+    let unrestricted_transfer_data = if unrestricted_connections {
+        encode_unrestricted_trip_journeys(&by_trip, &train_types)
+    } else {
+        Vec::new()
+    };
+    let unrestricted_endpoints = config
+        .local_origins
+        .iter()
+        .chain(&config.side_b_destinations)
+        .cloned()
+        .collect::<HashSet<_>>();
+    let unrestricted_services = if unrestricted_connections {
+        by_trip
+            .values()
+            .filter_map(|rows| {
+                let first = rows.first()?;
+                if train_types
+                    .as_ref()
+                    .is_some_and(|types| !types.contains(&first.train_type))
+                    || !rows
+                        .iter()
+                        .any(|stop| unrestricted_endpoints.contains(&stop.stop_name))
+                {
+                    return None;
+                }
+                Some(first.service_id.clone())
+            })
+            .collect::<HashSet<_>>()
+    } else {
+        HashSet::new()
+    };
 
     let service_days = load_service_days(&calendar_rows);
     let mut context = RouteContext {
@@ -912,53 +1320,94 @@ pub fn build_context(bytes: &[u8], config_value: JsValue) -> Result<JsValue, JsV
         station_names: station_names.into_iter().collect(),
         train_types: train_type_set.into_iter().collect(),
         service_days,
-        local_to_connection: find_trip_segments(&by_trip, &config.local_origins, connection_stations, &train_types),
+        local_to_connection: if unrestricted_connections {
+            Vec::new()
+        } else {
+            find_trip_segments(&by_trip, &config.local_origins, connection_stations, &train_types)
+        },
         local_to_side_b: find_trip_segments(&by_trip, &config.local_origins, &config.side_b_destinations, &train_types),
-        connection_to_side_b: find_trip_segments(&by_trip, connection_stations, &config.side_b_destinations, &train_types),
+        connection_to_side_b: if unrestricted_connections {
+            Vec::new()
+        } else {
+            find_trip_segments(&by_trip, connection_stations, &config.side_b_destinations, &train_types)
+        },
         connection_to_connection,
         side_b_to_local: find_trip_segments(&by_trip, &config.side_b_destinations, &config.local_origins, &train_types),
-        side_b_to_connection: find_trip_segments(&by_trip, &config.side_b_destinations, connection_stations, &train_types),
-        connection_to_local: find_trip_segments(&by_trip, connection_stations, &config.local_origins, &train_types),
+        side_b_to_connection: if unrestricted_connections {
+            Vec::new()
+        } else {
+            find_trip_segments(&by_trip, &config.side_b_destinations, connection_stations, &train_types)
+        },
+        connection_to_local: if unrestricted_connections {
+            Vec::new()
+        } else {
+            find_trip_segments(&by_trip, connection_stations, &config.local_origins, &train_types)
+        },
+        unrestricted_transfer_data,
+        unrestricted_origins: unrestricted_connections
+            .then(|| config.local_origins.clone())
+            .unwrap_or_default(),
+        unrestricted_destinations: unrestricted_connections
+            .then(|| config.side_b_destinations.clone())
+            .unwrap_or_default(),
     };
-    context.available_days = matching_days(&context);
-    to_js(&context)
+    context.available_days = if unrestricted_connections {
+        matching_service_days(&context.service_days, &unrestricted_services)
+    } else {
+        matching_days(&context)
+    };
+    Ok(context)
 }
 
 #[wasm_bindgen]
-pub fn routes_for_day(context_value: JsValue, request_value: JsValue) -> Result<JsValue, JsValue> {
-    let context: RouteContext = from_js(context_value)?;
-    let request: RouteRequest = from_js(request_value)?;
+pub fn build_context(bytes: &[u8], config_value: JsValue) -> Result<JsValue, JsValue> {
+    let config: BuildConfig = from_js(config_value)?;
+    let context = build_context_data(bytes, config).map_err(js_error)?;
+    to_js(&context)
+}
+
+fn routes_for_day_data(context: &RouteContext, request: &RouteRequest) -> Result<RouteResult, String> {
     let selected_day = request
         .selected_day
         .clone()
         .or_else(|| context.available_days.first().cloned());
     let Some(day) = selected_day.clone() else {
-        return to_js(&RouteResult {
+        return Ok(RouteResult {
             selected_day: None,
             outward: Vec::new(),
             returns: Vec::new(),
         });
     };
+    let active_services = active_service_ids(&context.service_days, &day);
+    let unrestricted_transfer_trips = decode_trip_journeys(&context.unrestricted_transfer_data)?;
+    let unrestricted_transfers = (!unrestricted_transfer_trips.is_empty())
+        .then(|| UnrestrictedTransferIndex::new(&unrestricted_transfer_trips, &active_services));
 
     let outward = build_itineraries(
-        active_segments(&context.local_to_side_b, &context.service_days, &day),
-        active_segments(&context.local_to_connection, &context.service_days, &day),
-        active_segments(&context.connection_to_connection, &context.service_days, &day),
-        active_segments(&context.connection_to_side_b, &context.service_days, &day),
+        active_segments(&context.local_to_side_b, &active_services),
+        active_segments(&context.local_to_connection, &active_services),
+        active_segments(&context.connection_to_connection, &active_services),
+        unrestricted_transfers.as_ref(),
+        &context.unrestricted_origins,
+        &context.unrestricted_destinations,
+        active_segments(&context.connection_to_side_b, &active_services),
         &day,
         "outward",
-        &request,
+        request,
     );
     let returns = build_itineraries(
-        active_segments(&context.side_b_to_local, &context.service_days, &day),
-        active_segments(&context.side_b_to_connection, &context.service_days, &day),
-        active_segments(&context.connection_to_connection, &context.service_days, &day),
-        active_segments(&context.connection_to_local, &context.service_days, &day),
+        active_segments(&context.side_b_to_local, &active_services),
+        active_segments(&context.side_b_to_connection, &active_services),
+        active_segments(&context.connection_to_connection, &active_services),
+        unrestricted_transfers.as_ref(),
+        &context.unrestricted_destinations,
+        &context.unrestricted_origins,
+        active_segments(&context.connection_to_local, &active_services),
         &day,
         "return",
-        &request,
+        request,
     );
-    to_js(&RouteResult {
+    Ok(RouteResult {
         selected_day: Some(day),
         outward,
         returns,
@@ -966,6 +1415,143 @@ pub fn routes_for_day(context_value: JsValue, request_value: JsValue) -> Result<
 }
 
 #[wasm_bindgen]
+pub fn routes_for_day(context_value: JsValue, request_value: JsValue) -> Result<JsValue, JsValue> {
+    let context: RouteContext = from_js(context_value)?;
+    let request: RouteRequest = from_js(request_value)?;
+    let result = routes_for_day_data(&context, &request).map_err(js_error)?;
+    to_js(&result)
+}
+
+#[wasm_bindgen]
 pub fn duration_label(minutes: i32) -> String {
     minutes_to_duration(minutes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    fn test_stop(name: &str, minutes: i32) -> StopPoint {
+        StopPoint {
+            stop_name: name.to_string(),
+            arrival_time: format!("{:02}:{:02}:00", minutes / 60, minutes % 60),
+            departure_time: format!("{:02}:{:02}:00", minutes / 60, minutes % 60),
+            arrival_minutes: minutes,
+            departure_minutes: minutes,
+            lat: 0.0,
+            lon: 0.0,
+            in_segment: false,
+        }
+    }
+
+    fn test_trip(id: &str, stops: &[(&str, i32)]) -> TripJourney {
+        TripJourney {
+            trip_id: id.to_string(),
+            service_id: "service".to_string(),
+            route_id: id.to_string(),
+            train_type: "Train".to_string(),
+            train_number: id.to_string(),
+            stops: stops
+                .iter()
+                .map(|(name, minutes)| test_stop(name, *minutes))
+                .collect(),
+        }
+    }
+
+    fn test_request() -> RouteRequest {
+        RouteRequest {
+            selected_day: Some("20260831".to_string()),
+            min_transfer_minutes: 10,
+            max_transfer_minutes: 60,
+            max_transfer_count: 2,
+            max_journey_duration_minutes: 240,
+        }
+    }
+
+    #[test]
+    fn unrestricted_transfers_find_an_unlisted_intermediate_route() {
+        let first_trip = test_trip("first", &[("A", 480), ("X", 500)]);
+        let middle_trip = test_trip("middle", &[("X", 515), ("Y", 540)]);
+        let final_trip = test_trip("final", &[("Y", 550), ("B", 600)]);
+        let encoded_trips = encode_trip_journeys(&[first_trip, middle_trip, final_trip]);
+        let trips = decode_trip_journeys(&encoded_trips).expect("trip data should round trip");
+        let active_services = HashSet::from(["service".to_string()]);
+        let index = UnrestrictedTransferIndex::new(&trips, &active_services);
+
+        let itineraries = build_itineraries(
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Some(&index),
+            &["A".to_string()],
+            &["B".to_string()],
+            Vec::new(),
+            "20260831",
+            "outward",
+            &test_request(),
+        );
+
+        assert_eq!(itineraries.len(), 1);
+        assert_eq!(itineraries[0].transfer_count, 2);
+        assert_eq!(itineraries[0].legs[1].trip_id, "middle");
+        assert_eq!(itineraries[0].destination_stop, "B");
+    }
+
+    fn default_build_config(connection_stations: Vec<String>) -> BuildConfig {
+        BuildConfig {
+            local_origins: vec!["Saujon".to_string(), "Saintes".to_string()],
+            connection_stations,
+            side_b_destinations: vec![
+                "Paris Montparnasse Hall 1 - 2".to_string(),
+                "Massy TGV".to_string(),
+                "Paris Est".to_string(),
+                "Paris Gare du Nord".to_string(),
+                "Paris Saint-Lazare".to_string(),
+                "Paris Montparnasse Vaugirard".to_string(),
+                "Paris Austerlitz".to_string(),
+                "Paris Gare de Lyon Hall 1 - 2".to_string(),
+            ],
+            train_types: Vec::new(),
+            max_transfer_count: 2,
+        }
+    }
+
+    #[test]
+    #[ignore = "performance probe requiring www/data/gtfs.zip"]
+    fn benchmark_filtered_and_unrestricted_transfers() {
+        let bytes = std::fs::read("www/data/gtfs.zip").expect("www/data/gtfs.zip is required");
+        let request = test_request();
+
+        for (label, stations) in [
+            (
+                "filtered",
+                vec![
+                    "Bordeaux Saint-Jean".to_string(),
+                    "Poitiers".to_string(),
+                    "Angoulême".to_string(),
+                ],
+            ),
+            ("unrestricted", Vec::new()),
+        ] {
+            let build_started = Instant::now();
+            let context = build_context_data(&bytes, default_build_config(stations)).expect("context should build");
+            let build_elapsed = build_started.elapsed();
+            let route_started = Instant::now();
+            let routes = routes_for_day_data(&context, &request).expect("routes should build");
+            let route_elapsed = route_started.elapsed();
+            eprintln!(
+                "{label}: build={build_elapsed:?}, routes={route_elapsed:?}, outward={}, returns={}, first_segments={}, final_segments={}, transfer_data_bytes={}",
+                routes.outward.len(),
+                routes.returns.len(),
+                context.local_to_connection.len() + context.side_b_to_connection.len(),
+                context.connection_to_side_b.len() + context.connection_to_local.len(),
+                context.unrestricted_transfer_data.len(),
+            );
+            if label == "unrestricted" {
+                assert!(context.connection_to_connection.is_empty());
+                assert!(!context.unrestricted_transfer_data.is_empty());
+            }
+        }
+    }
 }

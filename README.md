@@ -7,7 +7,7 @@ The app is designed for static hosting and does not need a backend.
 ## Features
 
 - Load a bundled GTFS zip or upload one in the browser.
-- Filter stations, train types, transfer points, transfer times, transfer counts, and journey duration.
+- Filter stations, train types, transfer points, transfer times, transfer counts, and journey duration. Clear every transfer point to allow transfers at any station.
 - Explore outward and return journeys with clickable train timelines.
 - Cache computed route context locally with IndexedDB.
 

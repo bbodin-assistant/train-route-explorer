@@ -195,6 +195,26 @@ async function main() {
     assert(timelineGuides.lines.length === timelineGuides.labels.length, "Each timeline label should have a vertical guide");
     assert(timelineGuides.lines.every((left, index) => Math.abs(left - timelineGuides.labels[index]) < 1), "Timeline guides should align with their time labels");
 
+    const unrestrictedTransfers = await page.eval(`(() => {
+      const boxes = Array.from(document.querySelectorAll("#config-connection-stations input[type='checkbox']:checked"));
+      for (const box of boxes) {
+        box.checked = false;
+        box.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      return {
+        checked: document.querySelectorAll("#config-connection-stations input[type='checkbox']:checked").length,
+        refreshVisible: Boolean(document.querySelector(".refresh-routes"))
+      };
+    })()`);
+    assert(unrestrictedTransfers.checked === 0, "All transfer stations should be clear for unrestricted routing");
+    assert(unrestrictedTransfers.refreshVisible, "Clearing transfer stations should require a route refresh");
+    await page.eval(`document.querySelector(".refresh-routes").click()`);
+    await waitFor(async () => page.eval(`!document.querySelector(".refresh-routes") && Boolean(document.querySelector(".timeline-grid"))`), {
+      timeoutMs: 120_000,
+      message: "unrestricted transfer routes to render",
+    });
+    assert(await page.eval(`document.querySelectorAll(".timeline-bar.train").length`) > 0, "Unrestricted transfer routing should return reachable journeys");
+
     async function assertSelectedFirst(containerSelector, label) {
       const result = await page.eval(`(() => {
         const boxes = Array.from(document.querySelectorAll("${containerSelector} input[type='checkbox']"));
