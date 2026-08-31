@@ -1,17 +1,19 @@
 const aboutButton = document.querySelector("#about-button");
 const aboutPanel = document.querySelector("#about-panel");
 const toolbarMenus = Array.from(document.querySelectorAll(".toolbar-menu"));
+const menuPanels = new Map();
 
 const panelStyle = document.createElement("style");
 panelStyle.textContent = `
-  .header-tools .toolbar-menu > .drawer-panel {
+  .floating-drawer {
     position: fixed !important;
     top: calc(var(--header-height) + 8px) !important;
     right: 12px !important;
-    bottom: 12px !important;
+    bottom: auto !important;
     left: auto !important;
-    height: auto !important;
-    max-height: none !important;
+    height: calc(100vh - var(--header-height) - 20px) !important;
+    min-height: 420px !important;
+    max-height: calc(100vh - var(--header-height) - 20px) !important;
     overflow-y: auto !important;
     overscroll-behavior: contain;
     scrollbar-gutter: stable;
@@ -23,41 +25,43 @@ panelStyle.textContent = `
     transform: none !important;
   }
 
-  .header-tools .route-settings-menu > .route-settings-panel {
+  .floating-drawer[hidden] { display: none !important; }
+
+  .floating-drawer.route-settings-panel {
     width: min(620px, calc(100vw - 24px)) !important;
   }
 
-  .header-tools .data-menu > .data-panel {
+  .floating-drawer.data-panel {
     width: min(520px, calc(100vw - 24px)) !important;
   }
 
-  .header-tools .drawer-heading {
+  .floating-drawer .drawer-heading {
     top: -18px !important;
     margin: -18px 0 16px !important;
     padding: 18px 2px 14px !important;
   }
 
-  .header-tools .route-settings-panel .option-checklist {
+  .floating-drawer.route-settings-panel .option-checklist {
     height: min(300px, 42vh) !important;
   }
 
-  .header-tools .time-config-panel {
+  .floating-drawer .time-config-panel {
     gap: 12px !important;
     margin-top: 16px !important;
   }
 
-  .header-tools .data-panel .source-panel {
+  .floating-drawer.data-panel .source-panel {
     gap: 20px !important;
   }
 
-  .header-tools .data-panel .server-source,
-  .header-tools .data-panel .upload-source {
+  .floating-drawer.data-panel .server-source,
+  .floating-drawer.data-panel .upload-source {
     padding: 14px !important;
     border: 1px solid #d3d8d4 !important;
     background: #fff !important;
   }
 
-  .header-tools .data-panel .server-source {
+  .floating-drawer.data-panel .server-source {
     border-bottom: 1px solid #d3d8d4 !important;
   }
 
@@ -115,14 +119,22 @@ panelStyle.textContent = `
     color: #fff;
   }
 
+  @supports (height: 100dvh) {
+    .floating-drawer {
+      height: calc(100dvh - var(--header-height) - 20px) !important;
+      max-height: calc(100dvh - var(--header-height) - 20px) !important;
+    }
+  }
+
   @media (max-width: 900px) {
-    .header-tools .toolbar-menu > .drawer-panel {
+    .floating-drawer {
       top: calc(var(--header-height) + 8px) !important;
       right: 8px !important;
-      bottom: 8px !important;
       left: 8px !important;
       width: auto !important;
-      max-width: none !important;
+      min-height: 0 !important;
+      height: calc(100vh - var(--header-height) - 16px) !important;
+      max-height: calc(100vh - var(--header-height) - 16px) !important;
     }
 
     .about-panel {
@@ -131,9 +143,32 @@ panelStyle.textContent = `
       left: 8px;
       width: auto;
     }
+
+    @supports (height: 100dvh) {
+      .floating-drawer {
+        height: calc(100dvh - var(--header-height) - 16px) !important;
+        max-height: calc(100dvh - var(--header-height) - 16px) !important;
+      }
+    }
   }
 `;
 document.head.append(panelStyle);
+
+function detachDrawersFromHeader() {
+  for (const menu of toolbarMenus) {
+    const panel = menu.querySelector(":scope > .drawer-panel");
+    if (!panel) continue;
+    menuPanels.set(menu, panel);
+    panel.classList.add("floating-drawer");
+    panel.hidden = !menu.open;
+    document.body.append(panel);
+  }
+}
+
+function syncMenuPanel(menu) {
+  const panel = menuPanels.get(menu);
+  if (panel) panel.hidden = !menu.open;
+}
 
 function closeAbout() {
   if (!aboutPanel || !aboutButton) return;
@@ -149,6 +184,8 @@ function toggleAbout() {
   aboutButton.setAttribute("aria-expanded", String(shouldOpen));
 }
 
+detachDrawersFromHeader();
+
 aboutButton?.addEventListener("click", (event) => {
   event.stopPropagation();
   toggleAbout();
@@ -158,6 +195,7 @@ aboutPanel?.addEventListener("click", (event) => event.stopPropagation());
 
 for (const menu of toolbarMenus) {
   menu.addEventListener("toggle", () => {
+    syncMenuPanel(menu);
     if (menu.open) closeAbout();
   });
 }
