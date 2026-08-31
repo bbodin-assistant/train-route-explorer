@@ -320,8 +320,8 @@ h3 {
 }
 
 .timeline {
-  --timeline-label-width: 250px;
-  --timeline-lane-min-width: 820px;
+  --timeline-label-width: 325px;
+  --timeline-lane-min-width: 700px;
   position: relative;
   padding: 14px;
   min-height: 560px;
@@ -362,6 +362,34 @@ h3 {
   margin-top: 4px;
   color: #526170;
   font-size: 13px;
+}
+
+.timeline-legend {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  min-height: 20px;
+  margin: 0 0 8px var(--timeline-label-width);
+  min-width: var(--timeline-lane-min-width);
+  color: #526170;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.timeline-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.timeline-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: 0 0 auto;
 }
 
 .timeline-scale {
@@ -407,15 +435,33 @@ h3 {
 }
 
 .timeline-label {
-  padding-right: 12px;
+  padding-right: 18px;
   font-size: 13px;
   line-height: 1.25;
   color: #172033;
+  font-variant-numeric: tabular-nums;
 }
 
-.timeline-label-main,
-.timeline-label-via {
-  display: block;
+.timeline-label-main {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) max-content;
+  gap: 8px;
+  align-items: baseline;
+  white-space: nowrap;
+}
+
+.timeline-label-time {
+  color: #526170;
+  font-weight: 800;
+}
+
+.timeline-label-route {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.timeline-label-duration {
+  text-align: right;
 }
 
 .timeline-label-main.highlighted {
@@ -424,7 +470,12 @@ h3 {
 }
 
 .timeline-label-via {
+  display: block;
   margin-top: 3px;
+  margin-left: 52px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: #94a3b8;
   font-size: 12px;
 }
@@ -449,23 +500,7 @@ h3 {
 }
 
 .timeline-bar.train {
-  background: #2563eb;
-}
-
-.timeline-bar.ter {
-  background: #2f855a;
-}
-
-.timeline-bar.inoui {
-  background: #2563eb;
-}
-
-.timeline-bar.ouigo {
-  background: #c026d3;
-}
-
-.timeline-bar.intercite {
-  background: #ea580c;
+  background: var(--train-color, #2563eb);
 }
 
 .timeline-bar.transfer {
@@ -563,7 +598,7 @@ h3 {
   }
 
   .timeline {
-    --timeline-label-width: 180px;
-    --timeline-lane-min-width: 720px;
+    --timeline-label-width: 234px;
+    --timeline-lane-min-width: 620px;
   }
 }
