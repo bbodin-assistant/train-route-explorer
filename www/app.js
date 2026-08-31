@@ -363,21 +363,40 @@ function routeStations(itinerary) {
   return stations;
 }
 
-function timelineLabel(itinerary) {
+function timelineLabel(itinerary, medianDuration) {
   const names = [itinerary.departure_stop, ...(itinerary.legs || []).map((leg) => leg.destination_stop)];
   const duration = minutesToDuration(itinerary.total_duration_minutes);
+  const durationMinutes = Number(itinerary.total_duration_minutes || 0);
+  const durationColor = durationMinutes < medianDuration
+    ? "#15803d"
+    : durationMinutes > medianDuration
+      ? "#b91c1c"
+      : "#a16207";
   const highlights = new Set(state.highlights);
   const stations = routeStations(itinerary);
   const matched = highlights.size > 0 && Array.from(highlights).every((station) => stations.has(station));
+  const hasStarredStation = highlights.size > 0 && Array.from(highlights).some((station) => stations.has(station));
   const via = names.slice(1, -1);
   return `
     <span class="timeline-label-main${matched ? " highlighted" : ""}">
       <span class="timeline-label-time">${clockLabel(itinerary.departure_minutes)}</span>
-      <span class="timeline-label-route">${escapeHtml(names[0])} → ${escapeHtml(names.at(-1))}</span>
-      <span class="timeline-label-duration">(<strong>${escapeHtml(duration)}</strong>)</span>
+      <span class="timeline-label-route"${hasStarredStation ? ' style="font-weight:800"' : ""}>${escapeHtml(names[0])} → ${escapeHtml(names.at(-1))}</span>
+      <span class="timeline-label-duration" style="color:${durationColor}">(<strong>${escapeHtml(duration)}</strong>)</span>
     </span>
     ${via.length ? `<span class="timeline-label-via">via ${via.map(escapeHtml).join(", ")}</span>` : ""}
   `;
+}
+
+function medianTripDuration(itineraries) {
+  const durations = itineraries
+    .map((itinerary) => Number(itinerary.total_duration_minutes))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+  if (!durations.length) return 0;
+  const middle = Math.floor(durations.length / 2);
+  return durations.length % 2
+    ? durations[middle]
+    : (durations[middle - 1] + durations[middle]) / 2;
 }
 
 function trainTypeClass(type) {
@@ -462,6 +481,7 @@ function renderTimeline(itineraries) {
   const { start, end, ticks } = timelineWindow(itineraries);
   const chartDuration = end - start;
   const trainTypeColors = timelineTrainTypeColors(itineraries);
+  const medianDuration = medianTripDuration(itineraries);
   const rows = itineraries.map((itinerary) => {
     const segments = [];
     itinerary.legs.forEach((leg, legIndex) => {
@@ -496,7 +516,7 @@ function renderTimeline(itineraries) {
     }).join("");
     return `
       <div class="timeline-row">
-        <div class="timeline-label">${timelineLabel(itinerary)}</div>
+        <div class="timeline-label">${timelineLabel(itinerary, medianDuration)}</div>
         <div class="timeline-lane">${bars}</div>
       </div>
     `;
