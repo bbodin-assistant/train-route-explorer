@@ -402,10 +402,8 @@ function timelineTrainTypeColors(itineraries) {
 function timelineWindow(itineraries) {
   const legs = itineraries.flatMap((itinerary) => itinerary.legs || []);
   const earliestDeparture = Math.min(...legs.map((leg) => Number(leg.departure_minutes)));
-  const latestArrival = Math.max(...legs.map((leg) => Number(leg.arrival_minutes)));
   const start = Number.isFinite(earliestDeparture) && earliestDeparture >= 240 ? 240 : 0;
-  const boundedArrival = Number.isFinite(latestArrival) ? Math.min(1440, latestArrival) : 1440;
-  const end = Math.max(start + 120, Math.min(1440, Math.ceil(boundedArrival / 120) * 120));
+  const end = 1440;
   const ticks = [];
   for (let minute = start; minute <= end; minute += 120) {
     if (minute !== 1440) ticks.push(minute);
