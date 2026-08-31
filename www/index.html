@@ -28,110 +28,129 @@
     <main>
       <section class="timetable-shell" aria-label="Train timetable">
         <header class="timetable-toolbar">
-          <div id="route-direction-tabs" class="tab-buttons" aria-label="Journey direction">
-            <button data-tab="out" class="selected">Outbound →</button>
-            <button data-tab="back">← Return</button>
-          </div>
+          <div class="toolbar-primary">
+            <div id="route-direction-tabs" class="tab-buttons" aria-label="Journey direction">
+              <button data-tab="out" class="selected" aria-pressed="true">Outbound</button>
+              <button data-tab="back" aria-pressed="false">Return</button>
+            </div>
 
-          <div class="day-control">
-            <label class="visually-hidden" for="day-calendar">Day</label>
-            <input id="day-calendar" type="date" disabled />
-            <button id="today-button" type="button" disabled>Today</button>
-          </div>
+            <div class="day-control">
+              <label class="visually-hidden" for="day-calendar">Day</label>
+              <input id="day-calendar" type="date" disabled />
+              <button id="today-button" type="button" disabled>Today</button>
+            </div>
 
-          <div class="toolbar-menus">
-            <details class="toolbar-menu route-settings-menu">
-              <summary>Route settings</summary>
-              <div class="drawer-panel route-settings-panel">
-                <div class="drawer-heading">
-                  <div>
-                    <span class="drawer-kicker">Route definition</span>
-                    <h2>Stations & constraints</h2>
+            <div class="toolbar-menus">
+              <details class="toolbar-menu route-settings-menu">
+                <summary>Route settings</summary>
+                <div class="drawer-panel route-settings-panel">
+                  <div class="drawer-heading">
+                    <div>
+                      <span class="drawer-kicker">Route definition</span>
+                      <h2>Stations & constraints</h2>
+                    </div>
+                    <span class="drawer-hint">★ marks preferred stations</span>
                   </div>
-                  <span class="drawer-hint">★ marks preferred stations</span>
+
+                  <section id="route-config-controls" class="config-panel">
+                    <fieldset class="station-picker" data-role="local_origins">
+                      <legend>Departure stations</legend>
+                      <input class="station-filter" type="search" placeholder="Filter stations" data-role="local_origins" />
+                      <div id="config-local-origins" class="station-checklist"></div>
+                    </fieldset>
+                    <fieldset class="station-picker" data-role="connection_stations">
+                      <legend>Via / transfer stations</legend>
+                      <input class="station-filter" type="search" placeholder="Filter stations" data-role="connection_stations" />
+                      <div id="config-connection-stations" class="station-checklist"></div>
+                    </fieldset>
+                    <fieldset class="station-picker" data-role="side_b_destinations">
+                      <legend>Arrival stations</legend>
+                      <input class="station-filter" type="search" placeholder="Filter stations" data-role="side_b_destinations" />
+                      <div id="config-side-b-destinations" class="station-checklist"></div>
+                    </fieldset>
+                    <fieldset class="option-picker" data-role="train_types">
+                      <legend>Service / ticket brand</legend>
+                      <input id="train-type-filter" class="option-filter" type="search" placeholder="Filter services" />
+                      <div id="config-train-types" class="option-checklist"></div>
+                    </fieldset>
+                  </section>
+
+                  <section class="time-config-panel">
+                    <label>
+                      Minimum transfer
+                      <span class="input-with-unit">
+                        <input id="config-min-transfer" type="number" min="0" step="1" aria-describedby="min-transfer-unit" />
+                        <span id="min-transfer-unit" class="input-unit">min</span>
+                      </span>
+                    </label>
+                    <label>
+                      Maximum transfer
+                      <span class="input-with-unit">
+                        <input id="config-max-transfer" type="number" min="0" step="1" aria-describedby="max-transfer-unit" />
+                        <span id="max-transfer-unit" class="input-unit">min</span>
+                      </span>
+                    </label>
+                    <label>
+                      Maximum transfers
+                      <span class="input-with-unit">
+                        <input id="config-max-transfer-count" type="number" min="0" step="1" aria-describedby="max-transfer-count-unit" />
+                        <span id="max-transfer-count-unit" class="input-unit">transfers</span>
+                      </span>
+                    </label>
+                    <label>
+                      Maximum journey
+                      <span class="input-with-unit">
+                        <input id="config-max-duration" type="number" min="0" step="1" aria-describedby="max-duration-unit" />
+                        <span id="max-duration-unit" class="input-unit">min</span>
+                      </span>
+                    </label>
+                  </section>
                 </div>
+              </details>
 
-                <section id="route-config-controls" class="config-panel">
-                  <fieldset class="station-picker" data-role="local_origins">
-                    <legend>Departure stations</legend>
-                    <input class="station-filter" type="search" placeholder="Filter stations" data-role="local_origins" />
-                    <div id="config-local-origins" class="station-checklist"></div>
-                  </fieldset>
-                  <fieldset class="station-picker" data-role="connection_stations">
-                    <legend>Transfer stations</legend>
-                    <input class="station-filter" type="search" placeholder="Filter stations" data-role="connection_stations" />
-                    <div id="config-connection-stations" class="station-checklist"></div>
-                  </fieldset>
-                  <fieldset class="station-picker" data-role="side_b_destinations">
-                    <legend>Arrival stations</legend>
-                    <input class="station-filter" type="search" placeholder="Filter stations" data-role="side_b_destinations" />
-                    <div id="config-side-b-destinations" class="station-checklist"></div>
-                  </fieldset>
-                  <fieldset class="option-picker" data-role="train_types">
-                    <legend>Service / ticket brand</legend>
-                    <input id="train-type-filter" class="option-filter" type="search" placeholder="Filter services" />
-                    <div id="config-train-types" class="option-checklist"></div>
-                  </fieldset>
-                </section>
-
-                <section class="time-config-panel">
-                  <label>
-                    Minimum transfer
-                    <span class="input-with-unit">
-                      <input id="config-min-transfer" type="number" min="0" step="1" aria-describedby="min-transfer-unit" />
-                      <span id="min-transfer-unit" class="input-unit">min</span>
-                    </span>
-                  </label>
-                  <label>
-                    Maximum transfer
-                    <span class="input-with-unit">
-                      <input id="config-max-transfer" type="number" min="0" step="1" aria-describedby="max-transfer-unit" />
-                      <span id="max-transfer-unit" class="input-unit">min</span>
-                    </span>
-                  </label>
-                  <label>
-                    Maximum transfers
-                    <span class="input-with-unit">
-                      <input id="config-max-transfer-count" type="number" min="0" step="1" aria-describedby="max-transfer-count-unit" />
-                      <span id="max-transfer-count-unit" class="input-unit">transfers</span>
-                    </span>
-                  </label>
-                  <label>
-                    Maximum journey
-                    <span class="input-with-unit">
-                      <input id="config-max-duration" type="number" min="0" step="1" aria-describedby="max-duration-unit" />
-                      <span id="max-duration-unit" class="input-unit">min</span>
-                    </span>
-                  </label>
-                </section>
-              </div>
-            </details>
-
-            <details class="toolbar-menu data-menu">
-              <summary>Data</summary>
-              <div class="drawer-panel data-panel">
-                <div class="drawer-heading">
-                  <div>
-                    <span class="drawer-kicker">Timetable source</span>
-                    <h2>GTFS archive</h2>
-                  </div>
-                </div>
-                <section class="source-panel">
-                  <div class="server-source">
-                    <span>Bundled SNCF data</span>
-                    <button id="load-bundled">Download GTFS</button>
-                  </div>
-                  <div class="upload-source">
-                    <label for="gtfs-upload">Use another GTFS zip</label>
-                    <div class="inline-control">
-                      <input id="gtfs-upload" type="file" accept=".zip,application/zip" />
-                      <button id="load-upload">Load</button>
+              <details class="toolbar-menu data-menu">
+                <summary>Data</summary>
+                <div class="drawer-panel data-panel">
+                  <div class="drawer-heading">
+                    <div>
+                      <span class="drawer-kicker">Timetable source</span>
+                      <h2>GTFS archive</h2>
                     </div>
                   </div>
-                </section>
-              </div>
-            </details>
+                  <section class="source-panel">
+                    <div class="server-source">
+                      <span>Bundled SNCF data</span>
+                      <button id="load-bundled">Download GTFS</button>
+                    </div>
+                    <div class="upload-source">
+                      <label for="gtfs-upload">Use another GTFS zip</label>
+                      <div class="inline-control">
+                        <input id="gtfs-upload" type="file" accept=".zip,application/zip" />
+                        <button id="load-upload">Load</button>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+              </details>
+            </div>
           </div>
+
+          <nav class="route-summary" aria-label="Configured route">
+            <button type="button" class="route-summary-stop" data-route-role="local_origins">
+              <span>Departure</span>
+              <strong data-route-value="local_origins">—</strong>
+            </button>
+            <span class="route-summary-arrow" aria-hidden="true">→</span>
+            <button type="button" class="route-summary-stop" data-route-role="connection_stations">
+              <span>Via</span>
+              <strong data-route-value="connection_stations">—</strong>
+            </button>
+            <span class="route-summary-arrow" aria-hidden="true">→</span>
+            <button type="button" class="route-summary-stop" data-route-role="side_b_destinations">
+              <span>Arrival</span>
+              <strong data-route-value="side_b_destinations">—</strong>
+            </button>
+          </nav>
         </header>
 
         <section id="routes-time-chart" class="timeline">
@@ -149,5 +168,6 @@
     <aside id="train-detail-frame" hidden></aside>
 
     <script type="module" src="./app.js"></script>
+    <script type="module" src="./layout.js"></script>
   </body>
 </html>
