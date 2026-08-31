@@ -7,99 +7,159 @@
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <main>
-      <header class="app-header">
-        <div>
-          <p class="eyebrow">GTFS route timelines</p>
-          <h1>Train Route Explorer</h1>
-          <a class="case-study-link" href="./strategy.html">Read the build strategy <span aria-hidden="true">↗</span></a>
-        </div>
+    <header class="app-header">
+      <a class="brand" href="./" aria-label="Train Route Explorer home">
+        <span class="brand-rail" aria-hidden="true"><i></i><i></i></span>
+        <span>
+          <strong>Train Route Explorer</strong>
+          <small>working timetable</small>
+        </span>
+      </a>
+      <div class="header-tools">
         <div id="cache-status" class="status idle">
+          <span class="status-dot" aria-hidden="true"></span>
           <span id="cache-status-text">Waiting for GTFS archive.</span>
           <progress id="cache-progress" max="100" value="0"></progress>
         </div>
-      </header>
+        <button type="button" class="case-study-link" id="about-button" aria-expanded="false" aria-controls="about-panel">About</button>
+      </div>
+    </header>
 
-      <section class="source-panel">
-        <div class="server-source">
-          <span>Server GTFS archive</span>
-          <button id="load-bundled">Download GTFS from server</button>
-        </div>
-        <div>
-          <label for="gtfs-upload">Upload GTFS zip</label>
-          <div class="inline-control">
-            <input id="gtfs-upload" type="file" accept=".zip,application/zip" />
-            <button id="load-upload">Load upload</button>
+    <div id="about-panel" class="about-panel" hidden role="dialog" aria-label="About Train Route Explorer">
+      <strong>Train Route Explorer</strong>
+      <p>Explore SNCF timetable options as a visual day chart. Route computation runs locally in your browser from GTFS data, including transfers and service filtering.</p>
+      <p>Your route, date, highlights, and train-type configuration are saved in this browser and restored when you return.</p>
+      <a href="./strategy.html">Technical white paper ↗</a>
+    </div>
+
+    <main>
+      <section class="timetable-shell" aria-label="Train timetable">
+        <header class="timetable-toolbar">
+          <div class="toolbar-primary">
+            <div id="route-direction-tabs" class="tab-buttons" aria-label="Journey direction">
+              <button data-tab="out" class="selected" aria-pressed="true">Outbound</button>
+              <button data-tab="back" aria-pressed="false">Return</button>
+            </div>
+
+            <div class="day-control">
+              <label class="visually-hidden" for="day-calendar">Day</label>
+              <input id="day-calendar" type="date" disabled />
+              <button id="today-button" type="button" disabled>Today</button>
+            </div>
+
+            <div class="toolbar-menus">
+              <details class="toolbar-menu route-settings-menu">
+                <summary>Route settings</summary>
+                <div class="drawer-panel route-settings-panel">
+                  <div class="drawer-heading">
+                    <div>
+                      <span class="drawer-kicker">Route definition</span>
+                      <h2>Stations & constraints</h2>
+                    </div>
+                    <span class="drawer-hint">★ marks preferred stations</span>
+                  </div>
+
+                  <section id="route-config-controls" class="config-panel">
+                    <fieldset class="station-picker" data-role="local_origins">
+                      <legend>Departure stations</legend>
+                      <input class="station-filter" type="search" placeholder="Filter stations" data-role="local_origins" />
+                      <div id="config-local-origins" class="station-checklist"></div>
+                    </fieldset>
+                    <fieldset class="station-picker" data-role="connection_stations">
+                      <legend>Via / transfer stations</legend>
+                      <input class="station-filter" type="search" placeholder="Filter stations" data-role="connection_stations" />
+                      <div id="config-connection-stations" class="station-checklist"></div>
+                    </fieldset>
+                    <fieldset class="station-picker" data-role="side_b_destinations">
+                      <legend>Arrival stations</legend>
+                      <input class="station-filter" type="search" placeholder="Filter stations" data-role="side_b_destinations" />
+                      <div id="config-side-b-destinations" class="station-checklist"></div>
+                    </fieldset>
+                    <fieldset class="option-picker" data-role="train_types">
+                      <legend>Service / ticket brand</legend>
+                      <input id="train-type-filter" class="option-filter" type="search" placeholder="Filter services" />
+                      <div id="config-train-types" class="option-checklist"></div>
+                    </fieldset>
+                  </section>
+
+                  <section class="time-config-panel">
+                    <label>
+                      Minimum transfer
+                      <span class="input-with-unit">
+                        <input id="config-min-transfer" type="number" min="0" step="1" aria-describedby="min-transfer-unit" />
+                        <span id="min-transfer-unit" class="input-unit">min</span>
+                      </span>
+                    </label>
+                    <label>
+                      Maximum transfer
+                      <span class="input-with-unit">
+                        <input id="config-max-transfer" type="number" min="0" step="1" aria-describedby="max-transfer-unit" />
+                        <span id="max-transfer-unit" class="input-unit">min</span>
+                      </span>
+                    </label>
+                    <label>
+                      Maximum transfers
+                      <span class="input-with-unit">
+                        <input id="config-max-transfer-count" type="number" min="0" step="1" aria-describedby="max-transfer-count-unit" />
+                        <span id="max-transfer-count-unit" class="input-unit">transfers</span>
+                      </span>
+                    </label>
+                    <label>
+                      Maximum journey
+                      <span class="input-with-unit">
+                        <input id="config-max-duration" type="number" min="0" step="1" aria-describedby="max-duration-unit" />
+                        <span id="max-duration-unit" class="input-unit">min</span>
+                      </span>
+                    </label>
+                  </section>
+                </div>
+              </details>
+
+              <details class="toolbar-menu data-menu">
+                <summary>Data</summary>
+                <div class="drawer-panel data-panel">
+                  <div class="drawer-heading">
+                    <div>
+                      <span class="drawer-kicker">Timetable source</span>
+                      <h2>GTFS archive</h2>
+                    </div>
+                  </div>
+                  <section class="source-panel">
+                    <div class="server-source">
+                      <span>Bundled SNCF data</span>
+                      <button id="load-bundled">Download GTFS</button>
+                    </div>
+                    <div class="upload-source">
+                      <label for="gtfs-upload">Use another GTFS zip</label>
+                      <div class="inline-control">
+                        <input id="gtfs-upload" type="file" accept=".zip,application/zip" />
+                        <button id="load-upload">Load</button>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+              </details>
+            </div>
           </div>
-        </div>
-      </section>
 
-      <section id="route-config-controls" class="config-panel">
-        <fieldset class="station-picker" data-role="local_origins">
-          <legend>Departure stations</legend>
-          <input class="station-filter" type="search" placeholder="Filter stations" data-role="local_origins" />
-          <div id="config-local-origins" class="station-checklist"></div>
-        </fieldset>
-        <fieldset class="station-picker" data-role="connection_stations">
-          <legend>Transfer stations</legend>
-          <input class="station-filter" type="search" placeholder="Filter stations" data-role="connection_stations" />
-          <div id="config-connection-stations" class="station-checklist"></div>
-        </fieldset>
-        <fieldset class="station-picker" data-role="side_b_destinations">
-          <legend>Arrival stations</legend>
-          <input class="station-filter" type="search" placeholder="Filter stations" data-role="side_b_destinations" />
-          <div id="config-side-b-destinations" class="station-checklist"></div>
-        </fieldset>
-        <fieldset class="option-picker" data-role="train_types">
-          <legend>Service / ticket brand</legend>
-          <input id="train-type-filter" class="option-filter" type="search" placeholder="Filter services" />
-          <div id="config-train-types" class="option-checklist"></div>
-        </fieldset>
-      </section>
+          <nav class="route-summary" aria-label="Configured route">
+            <button type="button" class="route-summary-stop" data-route-role="local_origins">
+              <span>Departure</span>
+              <strong data-route-value="local_origins">—</strong>
+            </button>
+            <span class="route-summary-arrow" aria-hidden="true">→</span>
+            <button type="button" class="route-summary-stop" data-route-role="connection_stations">
+              <span>Via</span>
+              <strong data-route-value="connection_stations">—</strong>
+            </button>
+            <span class="route-summary-arrow" aria-hidden="true">→</span>
+            <button type="button" class="route-summary-stop" data-route-role="side_b_destinations">
+              <span>Arrival</span>
+              <strong data-route-value="side_b_destinations">—</strong>
+            </button>
+          </nav>
+        </header>
 
-      <section class="time-config-panel">
-        <div class="day-control">
-          <label for="day-calendar">Day</label>
-          <div class="day-input-row">
-            <input id="day-calendar" type="date" disabled />
-            <button id="today-button" type="button" disabled>Today</button>
-          </div>
-        </div>
-        <label>
-          Minimum transfer time
-          <span class="input-with-unit">
-            <input id="config-min-transfer" type="number" min="0" step="1" aria-describedby="min-transfer-unit" />
-            <span id="min-transfer-unit" class="input-unit">minutes</span>
-          </span>
-        </label>
-        <label>
-          Maximum transfer time
-          <span class="input-with-unit">
-            <input id="config-max-transfer" type="number" min="0" step="1" aria-describedby="max-transfer-unit" />
-            <span id="max-transfer-unit" class="input-unit">minutes</span>
-          </span>
-        </label>
-        <label>
-          Maximum transfers
-          <span class="input-with-unit">
-            <input id="config-max-transfer-count" type="number" min="0" step="1" aria-describedby="max-transfer-count-unit" />
-            <span id="max-transfer-count-unit" class="input-unit">transfers</span>
-          </span>
-        </label>
-        <label>
-          Maximum journey duration
-          <span class="input-with-unit">
-            <input id="config-max-duration" type="number" min="0" step="1" aria-describedby="max-duration-unit" />
-            <span id="max-duration-unit" class="input-unit">minutes</span>
-          </span>
-        </label>
-      </section>
-
-      <section class="route-list-tabs">
-        <div id="route-direction-tabs" class="tab-buttons">
-          <button data-tab="out" class="selected">Departure → Arrival</button>
-          <button data-tab="back">Arrival → Departure</button>
-        </div>
         <section id="routes-time-chart" class="timeline">
           Load a GTFS archive to build routes.
         </section>
@@ -110,5 +170,11 @@
     <aside id="train-detail-frame" hidden></aside>
 
     <script type="module" src="./app.js"></script>
+    <script type="module" src="./layout.js"></script>
+    <script type="module" src="./panels.js"></script>
+    <script type="module" src="./sorting.js"></script>
+    <script type="module" src="./row-details.js"></script>
+    <script type="module" src="./switch-toggle.js"></script>
+    <script type="module" src="./legend-config.js"></script>
   </body>
 </html>
