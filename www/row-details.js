@@ -1,4 +1,6 @@
 const timeline = document.querySelector("#routes-time-chart");
+const detailLayer = document.querySelector("#train-detail-dismiss-layer");
+const detailFrame = document.querySelector("#train-detail-frame");
 
 const rowInteractionStyle = document.createElement("style");
 rowInteractionStyle.textContent = `
@@ -27,135 +29,93 @@ rowInteractionStyle.textContent = `
     outline-offset: -2px;
   }
 
-  .timeline-row.is-expanded {
+  .timeline-row.is-journey-open {
     background: rgba(246, 196, 69, 0.075);
     box-shadow: inset 3px 0 #d4a51d;
   }
 
-  .timeline-row-summary {
-    grid-column: 1 / -1;
-    display: grid;
-    grid-template-columns: minmax(0, 1.2fr) auto minmax(0, 1.2fr);
-    gap: 10px 16px;
-    align-items: center;
-    padding: 8px 14px 10px;
-    border-top: 1px solid #e5e7e3;
-    background: rgba(255, 254, 249, 0.96);
-    color: #39434b;
-    cursor: default;
+  #train-detail-frame.journey-detail-frame {
+    width: 470px;
+    max-width: calc(100vw - 32px);
+    max-height: 78vh;
+    padding: 14px;
   }
 
-  .timeline-row-summary[hidden] { display: none; }
-
-  .trip-summary-endpoint {
-    min-width: 0;
-  }
-
-  .trip-summary-endpoint:last-child {
-    text-align: right;
-  }
-
-  .trip-summary-kicker {
-    display: block;
-    margin-bottom: 2px;
-    color: #8a9296;
-    font-size: 8px;
+  .journey-detail-heading {
+    margin-bottom: 4px;
+    font-size: 13px;
     font-weight: 850;
-    letter-spacing: 0.11em;
-    text-transform: uppercase;
+    line-height: 1.3;
   }
 
-  .trip-summary-time {
-    margin-right: 7px;
-    font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
-    font-size: 12px;
-    font-weight: 850;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .trip-summary-station {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 11px;
-    font-weight: 650;
-  }
-
-  .trip-summary-middle {
-    min-width: 130px;
-    text-align: center;
-  }
-
-  .trip-summary-duration {
-    display: block;
-    margin-bottom: 3px;
-    font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
-    font-size: 12px;
-    font-weight: 850;
-  }
-
-  .trip-summary-transfer-count {
-    color: #7a8389;
-    font-size: 9px;
-    font-weight: 700;
-  }
-
-  .trip-summary-steps {
-    grid-column: 1 / -1;
+  .journey-detail-meta {
     display: flex;
-    align-items: center;
     flex-wrap: wrap;
-    gap: 5px;
-    padding-top: 1px;
-  }
-
-  .trip-summary-leg,
-  .trip-summary-transfer {
-    display: inline-flex;
-    align-items: center;
-    min-height: 22px;
-    padding: 3px 6px;
-    border: 1px solid #d9ddda;
-    border-radius: 3px;
-    background: #fff;
-    font-size: 9px;
+    gap: 5px 10px;
+    margin-bottom: 14px;
+    color: #6f7880;
+    font-size: 10px;
     font-weight: 750;
-    white-space: nowrap;
   }
 
-  .trip-summary-leg strong {
-    margin-left: 4px;
+  .journey-detail-meta strong {
+    color: #34404a;
     font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
-    font-weight: 850;
+    font-size: 11px;
   }
 
-  .trip-summary-transfer {
-    border-style: dashed;
-    color: #7b7060;
-    background: #fbf8ef;
+  .journey-detail-stop {
+    min-height: 43px !important;
   }
 
-  @media (max-width: 700px) {
-    .timeline-row-summary {
-      grid-template-columns: 1fr 1fr;
-    }
+  .journey-detail-stop i {
+    border-color: var(--journey-node-color, #2563eb) !important;
+    background: #fff !important;
+  }
 
-    .trip-summary-middle {
-      grid-column: 1 / -1;
-      grid-row: 2;
-      text-align: left;
-    }
+  .journey-detail-stop i::after {
+    height: 38px !important;
+    background: var(--journey-line-color, #2563eb) !important;
+  }
 
-    .trip-summary-endpoint:last-child {
-      text-align: right;
-    }
+  .journey-detail-stop.transfer i {
+    border-color: #a16207 !important;
+    background: #fff8df !important;
+  }
 
-    .trip-summary-steps {
-      grid-row: 3;
+  .journey-detail-stop strong {
+    display: block;
+  }
+
+  .journey-detail-note {
+    display: block;
+    margin-top: 3px;
+    color: #758087;
+    font-size: 10px;
+    font-weight: 650;
+    line-height: 1.35;
+  }
+
+  .journey-detail-service {
+    color: #44515b;
+  }
+
+  .journey-detail-transfer {
+    color: #8a6514;
+    font-weight: 800;
+  }
+
+  @media (max-width: 560px) {
+    #train-detail-frame.journey-detail-frame {
+      width: calc(100vw - 20px);
+      max-width: calc(100vw - 20px);
+      padding: 12px;
     }
   }
 `;
 document.head.append(rowInteractionStyle);
+
+let activeRow = null;
 
 function decodeLeg(bar) {
   if (!bar?.dataset.detail) return null;
@@ -175,87 +135,193 @@ function escapeText(value) {
     .replaceAll("'", "&#039;");
 }
 
+function serviceLabel(leg) {
+  const type = String(leg?.train_type || "Train").trim();
+  const number = String(leg?.train_number || "").trim();
+  return number ? `${type} ${number}` : type;
+}
+
+function legColor(bar) {
+  return bar?.style.getPropertyValue("--train-color")?.trim() || "#2563eb";
+}
+
+function stopListForLeg(leg) {
+  const directPath = Array.isArray(leg?.path) ? leg.path : [];
+  const journeyPath = Array.isArray(leg?.journey_path)
+    ? leg.journey_path.filter((stop) => stop?.in_segment !== false)
+    : [];
+  const source = directPath.length ? directPath : journeyPath;
+  const stops = source.map((stop) => ({ ...stop }));
+
+  if (!stops.length || stops[0]?.stop_name !== leg.departure_stop) {
+    stops.unshift({
+      stop_name: leg.departure_stop,
+      departure_time: leg.departure_time,
+      arrival_time: leg.departure_time,
+    });
+  }
+
+  if (stops.at(-1)?.stop_name !== leg.destination_stop) {
+    stops.push({
+      stop_name: leg.destination_stop,
+      arrival_time: leg.arrival_time,
+      departure_time: leg.arrival_time,
+    });
+  }
+
+  if (!stops[0].departure_time) stops[0].departure_time = leg.departure_time;
+  if (!stops.at(-1).arrival_time) stops.at(-1).arrival_time = leg.arrival_time;
+  return stops;
+}
+
+function transferMinutes(previousLeg, nextLeg) {
+  const arrival = Number(previousLeg?.arrival_minutes);
+  const departure = Number(nextLeg?.departure_minutes);
+  if (!Number.isFinite(arrival) || !Number.isFinite(departure)) return null;
+  return Math.max(0, departure - arrival);
+}
+
 function rowJourneyData(row) {
-  const trainBars = Array.from(row.querySelectorAll(".timeline-bar.train"));
-  const legs = trainBars.map(decodeLeg).filter(Boolean);
+  const trainBars = Array.from(row.querySelectorAll(".timeline-bar.train[data-detail]"));
+  const legs = trainBars
+    .map((bar) => ({ leg: decodeLeg(bar), color: legColor(bar) }))
+    .filter((entry) => entry.leg);
   if (!legs.length) return null;
 
-  const transferBars = Array.from(row.querySelectorAll(".timeline-bar.transfer"));
   const duration = row.querySelector(".timeline-label-duration")?.textContent.replace(/[()]/g, "").trim() || "—";
-
-  return { legs, transferBars, duration };
+  return { legs, duration };
 }
 
-function serviceLabel(leg) {
-  const type = String(leg.train_type || "Train").trim();
-  const number = String(leg.train_number || "").trim();
-  return { type, number };
+function buildJourneyNodes(data) {
+  const nodes = [];
+
+  data.legs.forEach((entry, legIndex) => {
+    const { leg, color } = entry;
+    const stops = stopListForLeg(leg);
+
+    stops.forEach((stop, stopIndex) => {
+      const station = String(stop.stop_name || "—");
+      const isFirstStop = stopIndex === 0;
+      const isLastStop = stopIndex === stops.length - 1;
+      const previousNode = nodes.at(-1);
+
+      if (legIndex > 0 && isFirstStop && previousNode?.station === station) {
+        const previousLeg = data.legs[legIndex - 1].leg;
+        const wait = transferMinutes(previousLeg, leg);
+        previousNode.departureTime = stop.departure_time || leg.departure_time || previousNode.departureTime;
+        previousNode.isTransfer = true;
+        previousNode.transferWait = wait;
+        previousNode.nextService = serviceLabel(leg);
+        previousNode.lineColor = color;
+        return;
+      }
+
+      nodes.push({
+        station,
+        arrivalTime: stop.arrival_time || (isLastStop ? leg.arrival_time : ""),
+        departureTime: stop.departure_time || (isFirstStop ? leg.departure_time : ""),
+        isTransfer: false,
+        transferWait: null,
+        service: isFirstStop ? serviceLabel(leg) : "",
+        nextService: "",
+        nodeColor: color,
+        lineColor: color,
+      });
+    });
+  });
+
+  return nodes;
 }
 
-function summarySteps(data) {
-  return data.legs.map((leg, index) => {
-    const service = serviceLabel(leg);
-    const legChip = `<span class="trip-summary-leg">${escapeText(service.type)}${service.number ? `<strong>${escapeText(service.number)}</strong>` : ""}</span>`;
-    const transfer = data.transferBars[index];
-    if (!transfer) return legChip;
-    const station = leg.destination_stop || "transfer";
-    const wait = transfer.textContent.trim() || "transfer";
-    return `${legChip}<span class="trip-summary-transfer">${escapeText(wait)} at ${escapeText(station)}</span>`;
-  }).join("");
+function nodeTime(node) {
+  const arrival = String(node.arrivalTime || "").trim();
+  const departure = String(node.departureTime || "").trim();
+  if (arrival && departure && arrival !== departure) return `${arrival} / ${departure}`;
+  return departure || arrival || "—";
 }
 
-function buildSummary(row) {
-  const data = rowJourneyData(row);
-  if (!data) return null;
-
-  const first = data.legs[0];
-  const last = data.legs.at(-1);
-  const transfers = Math.max(0, data.legs.length - 1);
-  const summary = document.createElement("div");
-  summary.className = "timeline-row-summary";
-  summary.hidden = true;
-  summary.addEventListener("click", (event) => event.stopPropagation());
-  summary.innerHTML = `
-    <div class="trip-summary-endpoint">
-      <span class="trip-summary-kicker">Departure</span>
-      <span class="trip-summary-time">${escapeText(first.departure_time || "—")}</span>
-      <span class="trip-summary-station">${escapeText(first.departure_stop || "—")}</span>
-    </div>
-    <div class="trip-summary-middle">
-      <span class="trip-summary-duration">${escapeText(data.duration)}</span>
-      <span class="trip-summary-transfer-count">${transfers ? `${transfers} transfer${transfers === 1 ? "" : "s"}` : "Direct journey"}</span>
-    </div>
-    <div class="trip-summary-endpoint">
-      <span class="trip-summary-kicker">Arrival</span>
-      <span class="trip-summary-time">${escapeText(last.arrival_time || "—")}</span>
-      <span class="trip-summary-station">${escapeText(last.destination_stop || "—")}</span>
-    </div>
-    <div class="trip-summary-steps" aria-label="Journey services">${summarySteps(data)}</div>
-  `;
-  row.append(summary);
-  return summary;
-}
-
-function closeOtherRows(exceptRow) {
-  for (const row of timeline?.querySelectorAll(".timeline-row.is-expanded") || []) {
-    if (row === exceptRow) continue;
-    row.classList.remove("is-expanded");
-    row.setAttribute("aria-expanded", "false");
-    const summary = row.querySelector(":scope > .timeline-row-summary");
-    if (summary) summary.hidden = true;
+function nodeNote(node) {
+  if (node.isTransfer) {
+    const wait = Number.isFinite(node.transferWait) ? `${node.transferWait} min` : "change";
+    const next = node.nextService ? ` · ${escapeText(node.nextService)}` : "";
+    return `<span class="journey-detail-note journey-detail-transfer">Change ${escapeText(wait)}${next}</span>`;
   }
+  if (node.service) {
+    return `<span class="journey-detail-note journey-detail-service">${escapeText(node.service)}</span>`;
+  }
+  return "";
 }
 
-function toggleRow(row) {
-  let summary = row.querySelector(":scope > .timeline-row-summary");
-  if (!summary) summary = buildSummary(row);
-  if (!summary) return;
+function journeyStopsHtml(nodes) {
+  return nodes.map((node) => `
+    <div class="detail-stop journey-detail-stop${node.isTransfer ? " transfer" : ""}" style="--journey-node-color:${escapeText(node.nodeColor)};--journey-line-color:${escapeText(node.lineColor)}">
+      <span>${escapeText(nodeTime(node))}</span>
+      <i aria-hidden="true"></i>
+      <div>
+        <strong>${escapeText(node.station)}</strong>
+        ${nodeNote(node)}
+      </div>
+    </div>
+  `).join("");
+}
 
-  const opening = summary.hidden;
-  closeOtherRows(opening ? row : null);
-  summary.hidden = !opening;
-  row.classList.toggle("is-expanded", opening);
-  row.setAttribute("aria-expanded", String(opening));
+function clearJourneySelection() {
+  if (activeRow) {
+    activeRow.classList.remove("is-journey-open");
+    activeRow.setAttribute("aria-expanded", "false");
+  }
+  activeRow = null;
+  detailFrame?.classList.remove("journey-detail-frame");
+}
+
+function positionJourneyFrame(row) {
+  if (!detailFrame) return;
+  const rect = row.getBoundingClientRect();
+  const left = Math.min(Math.max(16, rect.left + 72), window.innerWidth - detailFrame.offsetWidth - 16);
+  detailFrame.style.left = `${left}px`;
+
+  requestAnimationFrame(() => {
+    const desiredTop = window.scrollY + rect.top + 26;
+    const minimumTop = window.scrollY + 16;
+    const maximumTop = window.scrollY + window.innerHeight - detailFrame.offsetHeight - 16;
+    detailFrame.style.top = `${Math.max(minimumTop, Math.min(desiredTop, maximumTop))}px`;
+  });
+}
+
+function showJourneyGraph(row) {
+  if (!detailFrame || !detailLayer) return;
+  const data = rowJourneyData(row);
+  if (!data) return;
+
+  const nodes = buildJourneyNodes(data);
+  if (!nodes.length) return;
+
+  const firstLeg = data.legs[0].leg;
+  const lastLeg = data.legs.at(-1).leg;
+  const transferCount = Math.max(0, data.legs.length - 1);
+
+  if (activeRow && activeRow !== row) clearJourneySelection();
+  activeRow = row;
+  row.classList.add("is-journey-open");
+  row.setAttribute("aria-expanded", "true");
+
+  detailFrame.classList.add("journey-detail-frame");
+  detailFrame.innerHTML = `
+    <div class="journey-detail-heading">
+      ${escapeText(firstLeg.departure_stop || "—")} ${escapeText(firstLeg.departure_time || "")}
+      → ${escapeText(lastLeg.destination_stop || "—")} ${escapeText(lastLeg.arrival_time || "")}
+    </div>
+    <div class="journey-detail-meta">
+      <span>Duration <strong>${escapeText(data.duration)}</strong></span>
+      <span>${transferCount ? `${transferCount} change${transferCount === 1 ? "" : "s"}` : "Direct journey"}</span>
+    </div>
+    <div class="detail-stops journey-detail-stops" aria-label="Full journey graph">
+      ${journeyStopsHtml(nodes)}
+    </div>
+  `;
+  detailFrame.hidden = false;
+  detailLayer.hidden = false;
+  positionJourneyFrame(row);
 }
 
 function makeRowsInteractive() {
@@ -264,29 +330,37 @@ function makeRowsInteractive() {
     row.dataset.rowInteractive = "true";
     row.tabIndex = 0;
     row.setAttribute("aria-expanded", "false");
-    row.setAttribute("aria-label", "Trip row. Press Enter for journey summary.");
+    row.setAttribute("aria-label", "Trip row. Press Enter for the full journey graph.");
   }
 }
 
 function isNestedControl(target) {
-  return Boolean(target.closest("button, input, select, textarea, a, .timeline-row-summary"));
+  return Boolean(target.closest("button, input, select, textarea, a"));
 }
 
 timeline?.addEventListener("click", (event) => {
   const row = event.target.closest(".timeline-row");
-  if (!row || isNestedControl(event.target)) return;
-  toggleRow(row);
+  if (!row || isNestedControl(event.target)) {
+    if (event.target.closest(".timeline-bar.train")) clearJourneySelection();
+    return;
+  }
+  showJourneyGraph(row);
 });
 
 timeline?.addEventListener("keydown", (event) => {
   const row = event.target.closest(".timeline-row");
   if (!row || event.target !== row || !["Enter", " "].includes(event.key)) return;
   event.preventDefault();
-  toggleRow(row);
+  showJourneyGraph(row);
 });
 
+detailLayer?.addEventListener("click", clearJourneySelection);
+
 if (timeline) {
-  new MutationObserver(makeRowsInteractive).observe(timeline, { childList: true, subtree: true });
+  new MutationObserver(() => {
+    if (activeRow && !activeRow.isConnected) clearJourneySelection();
+    makeRowsInteractive();
+  }).observe(timeline, { childList: true, subtree: true });
 }
 
 makeRowsInteractive();
