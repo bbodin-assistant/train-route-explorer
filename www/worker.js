@@ -12,6 +12,8 @@ let archiveBytes = null;
 let sourceMeta = null;
 let activeContext = null;
 let activeConfig = null;
+let routeShortNamesArchive = null;
+let routeShortNames = new Map();
 
 async function ensureWasm() {
   if (!wasmReady) {
@@ -173,10 +175,152 @@ async function fetchArchive(url) {
   };
 }
 
+function findEndOfCentralDirectory(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const minimum = Math.max(0, bytes.length - 65_557);
+  for (let offset = bytes.length - 22; offset >= minimum; offset -= 1) {
+    if (view.getUint32(offset, true) === 0x06054b50) return offset;
+  }
+  return -1;
+}
+
+async function zipEntryText(bytes, targetName) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const eocdOffset = findEndOfCentralDirectory(bytes);
+  if (eocdOffset < 0) return "";
+
+  const entryCount = view.getUint16(eocdOffset + 10, true);
+  let offset = view.getUint32(eocdOffset + 16, true);
+  const decoder = new TextDecoder();
+
+  for (let index = 0; index < entryCount; index += 1) {
+    if (view.getUint32(offset, true) !== 0x02014b50) return "";
+    const compressionMethod = view.getUint16(offset + 10, true);
+    const compressedSize = view.getUint32(offset + 20, true);
+    const fileNameLength = view.getUint16(offset + 28, true);
+    const extraLength = view.getUint16(offset + 30, true);
+    const commentLength = view.getUint16(offset + 32, true);
+    const localHeaderOffset = view.getUint32(offset + 42, true);
+    const fileName = decoder.decode(bytes.subarray(offset + 46, offset + 46 + fileNameLength));
+
+    if (fileName === targetName) {
+      if (view.getUint32(localHeaderOffset, true) !== 0x04034b50) return "";
+      const localNameLength = view.getUint16(localHeaderOffset + 26, true);
+      const localExtraLength = view.getUint16(localHeaderOffset + 28, true);
+      const dataStart = localHeaderOffset + 30 + localNameLength + localExtraLength;
+      const compressed = bytes.slice(dataStart, dataStart + compressedSize);
+
+      if (compressionMethod === 0) return decoder.decode(compressed);
+      if (compressionMethod !== 8 || typeof DecompressionStream !== "function") return "";
+
+      try {
+        const stream = new Blob([compressed])
+          .stream()
+          .pipeThrough(new DecompressionStream("deflate-raw"));
+        return await new Response(stream).text();
+      } catch (error) {
+        return "";
+      }
+    }
+
+    offset += 46 + fileNameLength + extraLength + commentLength;
+  }
+
+  return "";
+}
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let value = "";
+  let quoted = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+
+    if (quoted) {
+      if (character === '"') {
+        if (text[index + 1] === '"') {
+          value += '"';
+          index += 1;
+        } else {
+          quoted = false;
+        }
+      } else {
+        value += character;
+      }
+      continue;
+    }
+
+    if (character === '"') {
+      quoted = true;
+    } else if (character === ",") {
+      row.push(value);
+      value = "";
+    } else if (character === "\n") {
+      row.push(value);
+      value = "";
+      if (row.some((field) => field.length)) rows.push(row);
+      row = [];
+    } else if (character !== "\r") {
+      value += character;
+    }
+  }
+
+  row.push(value);
+  if (row.some((field) => field.length)) rows.push(row);
+  return rows;
+}
+
+async function ensureRouteShortNames() {
+  if (!archiveBytes || routeShortNamesArchive === archiveBytes) return;
+  routeShortNamesArchive = archiveBytes;
+  routeShortNames = new Map();
+
+  const text = await zipEntryText(archiveBytes, "routes.txt");
+  if (!text) return;
+
+  const rows = parseCsv(text);
+  if (!rows.length) return;
+
+  const headers = rows[0].map((header) => header.replace(/^\uFEFF/, "").trim());
+  const routeIdIndex = headers.indexOf("route_id");
+  const shortNameIndex = headers.indexOf("route_short_name");
+  if (routeIdIndex < 0 || shortNameIndex < 0) return;
+
+  for (const row of rows.slice(1)) {
+    const routeId = String(row[routeIdIndex] || "").trim();
+    const shortName = String(row[shortNameIndex] || "").trim();
+    if (routeId && shortName) routeShortNames.set(routeId, shortName);
+  }
+}
+
+function publicTerLineCode(value) {
+  const code = String(value || "").trim().toUpperCase().replace(/\s+/g, "");
+  if (!code || code.length > 6) return "";
+  if (/^[A-Z]{1,3}\d{1,3}[A-Z]?$/.test(code)) return code;
+  if (/^\d{1,3}$/.test(code)) return code;
+  return "";
+}
+
+function applyPublicTrainCodes(result) {
+  for (const itinerary of [...(result.outward || []), ...(result.returns || [])]) {
+    for (const leg of itinerary.legs || []) {
+      if (leg.train_type !== "TER") continue;
+      const lineCode = publicTerLineCode(routeShortNames.get(String(leg.route_id || "")));
+      if (lineCode) leg.train_number = lineCode;
+    }
+  }
+  return result;
+}
+
 async function buildOrLoadContext(config) {
   if (!archiveBytes || !sourceMeta) {
     throw new Error("Load a GTFS archive first.");
   }
+
+  await ensureRouteShortNames();
+
   const key = await cacheKey(archiveBytes, sourceMeta, config);
   post("progress", { message: "Checking browser cache...", progress: 5 });
   const cached = await storeGet(CONTEXT_STORE, key);
@@ -209,7 +353,7 @@ function computeRoutes(day, overrides = {}) {
     max_transfer_count: config.max_transfer_count,
     max_journey_duration_minutes: config.max_journey_duration_minutes,
   };
-  return routes_for_day(activeContext, request);
+  return applyPublicTrainCodes(routes_for_day(activeContext, request));
 }
 
 self.onmessage = async (event) => {
