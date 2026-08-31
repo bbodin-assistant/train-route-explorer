@@ -20,6 +20,19 @@ const DEFAULT_CONFIG = {
 const SERVER_GTFS_URL = "./data/gtfs.zip";
 const SETTINGS_STORAGE_KEY = "train-route-explorer-settings-v1";
 const AUTO_REFRESH_DELAY_MS = 300;
+const TRAIN_TYPE_COLORS = {
+  "TGV INOUI": "#2563eb",
+  "OUIGO Grande Vitesse": "#c026d3",
+  "OUIGO Train Classique": "#7c3aed",
+  "INTERCITÉS": "#ea580c",
+  "INTERCITÉS de nuit": "#9333ea",
+  "TGV Lyria": "#dc2626",
+  "ICE / DB–SNCF": "#0891b2",
+  "TER": "#2f855a",
+  "Tram-train": "#0f766e",
+  "Shuttle": "#a16207",
+  "Unknown": "#64748b",
+};
 
 function listSetting(value, fallback = []) {
   return Array.isArray(value) ? value.map(String).filter(Boolean).sort() : [...fallback];
@@ -350,21 +363,71 @@ function routeStations(itinerary) {
   return stations;
 }
 
-function timelineLabel(itinerary) {
+function timelineLabel(itinerary, medianDuration) {
   const names = [itinerary.departure_stop, ...(itinerary.legs || []).map((leg) => leg.destination_stop)];
   const duration = minutesToDuration(itinerary.total_duration_minutes);
+  const durationMinutes = Number(itinerary.total_duration_minutes || 0);
+  const durationColor = durationMinutes < medianDuration
+    ? "#15803d"
+    : durationMinutes > medianDuration
+      ? "#b91c1c"
+      : "#a16207";
   const highlights = new Set(state.highlights);
   const stations = routeStations(itinerary);
   const matched = highlights.size > 0 && Array.from(highlights).every((station) => stations.has(station));
+  const hasStarredStation = highlights.size > 0 && Array.from(highlights).some((station) => stations.has(station));
   const via = names.slice(1, -1);
   return `
-    <span class="timeline-label-main${matched ? " highlighted" : ""}">${escapeHtml(names[0])} → ${escapeHtml(names.at(-1))} (<strong>${escapeHtml(duration)}</strong>)</span>
+    <span class="timeline-label-main${matched ? " highlighted" : ""}">
+      <span class="timeline-label-time">${clockLabel(itinerary.departure_minutes)}</span>
+      <span class="timeline-label-route"${hasStarredStation ? ' style="font-weight:800"' : ""}>${escapeHtml(names[0])} → ${escapeHtml(names.at(-1))}</span>
+      <span class="timeline-label-duration" style="color:${durationColor}">(<strong>${escapeHtml(duration)}</strong>)</span>
+    </span>
     ${via.length ? `<span class="timeline-label-via">via ${via.map(escapeHtml).join(", ")}</span>` : ""}
   `;
 }
 
+function medianTripDuration(itineraries) {
+  const durations = itineraries
+    .map((itinerary) => Number(itinerary.total_duration_minutes))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+  if (!durations.length) return 0;
+  const middle = Math.floor(durations.length / 2);
+  return durations.length % 2
+    ? durations[middle]
+    : (durations[middle - 1] + durations[middle]) / 2;
+}
+
 function trainTypeClass(type) {
   return String(type || "train").toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+}
+
+function timelineTrainTypeColors(itineraries) {
+  const colors = new Map();
+  let fallbackIndex = 0;
+  for (const itinerary of itineraries) {
+    for (const leg of itinerary.legs || []) {
+      const type = String(leg.train_type || "Unknown");
+      if (colors.has(type)) continue;
+      const color = TRAIN_TYPE_COLORS[type]
+        || `hsl(${Math.round((fallbackIndex++ * 137.508) % 360)} 68% 40%)`;
+      colors.set(type, color);
+    }
+  }
+  return colors;
+}
+
+function timelineWindow(itineraries) {
+  const legs = itineraries.flatMap((itinerary) => itinerary.legs || []);
+  const earliestDeparture = Math.min(...legs.map((leg) => Number(leg.departure_minutes)));
+  const start = Number.isFinite(earliestDeparture) && earliestDeparture >= 240 ? 240 : 0;
+  const end = 1440;
+  const ticks = [];
+  for (let minute = start; minute <= end; minute += 120) {
+    if (minute !== 1440) ticks.push(minute);
+  }
+  return { start, end, ticks };
 }
 
 function setTimelinePlaceholder(message) {
@@ -415,16 +478,19 @@ function renderTimeline(itineraries) {
     els.timeline.innerHTML = `<div class="timeline-empty">No matching connections for this day.</div>`;
     return;
   }
-  const ticks = Array.from({ length: 13 }, (_, index) => index * 120);
-  const rows = itineraries.map((itinerary, rowIndex) => {
+  const { start, end, ticks } = timelineWindow(itineraries);
+  const chartDuration = end - start;
+  const trainTypeColors = timelineTrainTypeColors(itineraries);
+  const medianDuration = medianTripDuration(itineraries);
+  const rows = itineraries.map((itinerary) => {
     const segments = [];
     itinerary.legs.forEach((leg, legIndex) => {
       segments.push({
         kind: "train",
-        label: legIndex === 0 ? leg.train_type : (leg.train_number || leg.train_type),
+        label: leg.train_number || "—",
         start: leg.departure_minutes,
         end: leg.arrival_minutes,
-        trainType: leg.train_type,
+        trainType: leg.train_type || "Unknown",
         detail: leg,
       });
       if (itinerary.transfers[legIndex]) {
@@ -438,22 +504,32 @@ function renderTimeline(itineraries) {
       }
     });
     const bars = segments.map((segment) => {
-      const left = (segment.start / 1440) * 100;
-      const width = Math.max(0.3, ((segment.end - segment.start) / 1440) * 100);
+      const left = ((segment.start - start) / chartDuration) * 100;
+      const width = Math.max(0.3, ((segment.end - segment.start) / chartDuration) * 100);
       const detail = segment.detail ? encodeURIComponent(JSON.stringify(segment.detail)) : "";
-      return `<button class="timeline-bar ${segment.kind} ${segment.trainType ? trainTypeClass(segment.trainType) : ""}" data-detail="${detail}" style="left:${left}%;width:${width}%">${escapeHtml(segment.label)}</button>`;
+      const trainColor = segment.trainType ? trainTypeColors.get(segment.trainType) : "";
+      const colorStyle = trainColor ? `--train-color:${trainColor};` : "";
+      const title = segment.trainType
+        ? ` title="${escapeHtml(`${segment.trainType} ${segment.label}`)}"`
+        : "";
+      return `<button class="timeline-bar ${segment.kind} ${segment.trainType ? trainTypeClass(segment.trainType) : ""}" data-detail="${detail}"${title} style="${colorStyle}left:${left}%;width:${width}%">${escapeHtml(segment.label)}</button>`;
     }).join("");
     return `
       <div class="timeline-row">
-        <div class="timeline-label">${timelineLabel(itinerary)}</div>
+        <div class="timeline-label">${timelineLabel(itinerary, medianDuration)}</div>
         <div class="timeline-lane">${bars}</div>
       </div>
     `;
   }).join("");
+  const legend = Array.from(trainTypeColors, ([type, color]) => `
+    <span class="timeline-legend-item"><i class="timeline-legend-swatch" style="background:${color}"></i>${escapeHtml(type)}</span>
+  `).join("");
+  const position = (minute) => ((minute - start) / chartDuration) * 100;
   els.timeline.innerHTML = `
-    <div class="timeline-scale">${ticks.map((minute) => `<span style="left:${(minute / 1440) * 100}%">${clockLabel(minute)}</span>`).join("")}</div>
+    <div class="timeline-legend" aria-label="Train type color legend">${legend}</div>
+    <div class="timeline-scale">${ticks.map((minute) => `<span style="left:${position(minute)}%">${clockLabel(minute)}</span>`).join("")}</div>
     <div class="timeline-grid">
-      <div class="timeline-grid-lines" aria-hidden="true">${ticks.map((minute) => `<span style="left:${(minute / 1440) * 100}%"></span>`).join("")}</div>
+      <div class="timeline-grid-lines" aria-hidden="true">${ticks.map((minute) => `<span style="left:${position(minute)}%"></span>`).join("")}</div>
       ${rows}
     </div>
   `;
