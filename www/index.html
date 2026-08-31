@@ -21,9 +21,15 @@
           <span id="cache-status-text">Waiting for GTFS archive.</span>
           <progress id="cache-progress" max="100" value="0"></progress>
         </div>
-        <a class="case-study-link" href="./strategy.html">About</a>
+        <button type="button" class="case-study-link" id="about-button" aria-expanded="false" aria-controls="about-panel">About</button>
       </div>
     </header>
+
+    <div id="about-panel" class="about-panel" hidden role="dialog" aria-label="About Train Route Explorer">
+      <strong>Train Route Explorer</strong>
+      <p>Explore SNCF timetable options as a visual day chart. Route computation runs locally in your browser from GTFS data, including transfers and service filtering.</p>
+      <a href="./strategy.html">Technical white paper ↗</a>
+    </div>
 
     <main>
       <section class="timetable-shell" aria-label="Train timetable">
@@ -157,11 +163,6 @@
           Load a GTFS archive to build routes.
         </section>
       </section>
-
-      <footer class="page-meta">
-        <span>Timetable view</span>
-        <a href="./strategy.html">Build strategy ↗</a>
-      </footer>
     </main>
 
     <div id="train-detail-dismiss-layer" hidden></div>
@@ -169,5 +170,6 @@
 
     <script type="module" src="./app.js"></script>
     <script type="module" src="./layout.js"></script>
+    <script type="module" src="./panels.js"></script>
   </body>
 </html>
