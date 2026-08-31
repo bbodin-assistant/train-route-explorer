@@ -17,6 +17,19 @@
 - The **Today** button is `#today-button`. It must use the browser's local calendar date, convert it to GTFS `YYYYMMDD` format, and follow the same route-loading path as a manual date change.
 - A date may only be selected when it occurs in `state.availableDays`. If today is unavailable, keep the existing selected date and show an error instead of displaying a date for which routes cannot be calculated.
 - Date and Today controls remain disabled until a GTFS context is ready and while the app is busy.
+- The four numeric route controls show explicit suffixes: transfer times and journey duration use `minutes`; maximum transfers uses `transfers`. Keep their text boxes compact and preserve visible horizontal spacing between controls.
+- User-facing direction terminology is `Departure` and `Arrival`, not side A/B.
+- Highlights are star buttons rendered in the departure, transfer, and arrival station rows. There is no separate Highlights panel. The same station's star state must stay synchronized across all three lists.
+- Route-setting edits refresh automatically after a short debounce. Show the animated `.route-refresh-spinner` instead of a manual refresh button, collapse rapid edits into one rebuild, and queue one follow-up rebuild when settings change during an in-flight refresh.
+
+## Train service labels
+
+- SNCF numeric values such as `421I` are `route_short_name` codes, and names such as `Paris - Brest TGV` are corridors. Neither is a reliable commercial service or ticket brand.
+- `infer_train_type()` prioritizes the per-trip SNCF service code. Current mappings include `OUI` to `TGV INOUI`, `OGO` to `OUIGO Grande Vitesse`, `IC`/`ICN` to the two INTERCITÉS categories, `LYR`, `ICE`, `TER`/`CTE`, `TT`, and `NAV`.
+- The Paris-Brussels `TRN` records are `OUIGO Train Classique`. Route names containing `Navette` are classified as `Shuttle`; other unrecognized records become `Unknown` rather than inheriting a corridor name.
+- Preserve normalized `route_long_name` separately as `route_name` and show it as corridor detail on a journey leg.
+- The `explicit_trip_codes_map_to_commercial_services` and `corridor_names_are_details_not_guessed_service_types` unit tests protect these rules.
+- Changing inferred train labels changes serialized contexts. Increment `CACHE_VERSION` in `www/worker.js`, and ensure stale saved train-type selections fall back to all currently available labels.
 
 ## Unrestricted transfer routing
 
@@ -43,10 +56,10 @@ cargo test
 git diff --check
 ```
 
-The `wasm-pack` executable is installed at `/home/toky/.cargo/bin/wasm-pack`, but `/home/toky/.cargo/bin` may not be on `PATH`. Build with:
+The `wasm-pack` executable is installed at `$HOME/.cargo/bin/wasm-pack`, but `$HOME/.cargo/bin` may not be on `PATH`. Build with:
 
 ```bash
-env PATH=/home/toky/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin make build
+env PATH=$HOME/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin make build
 ```
 
 `wasm-pack` writes to Cargo and wasm-bindgen caches outside the repository. In a restricted agent sandbox, request the required escalation immediately if the build reports a read-only Cargo cache or inability to create a wasm-bindgen temporary directory. Repeating the same sandboxed build will not help.

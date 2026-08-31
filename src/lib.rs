@@ -51,6 +51,7 @@ struct StopPoint {
 struct EnrichedStop {
     service_id: String,
     route_id: String,
+    route_name: String,
     train_type: String,
     train_number: String,
     stop_name: String,
@@ -68,6 +69,7 @@ struct Segment {
     trip_id: String,
     service_id: String,
     route_id: String,
+    route_name: String,
     train_type: String,
     train_number: String,
     departure_stop: String,
@@ -85,6 +87,7 @@ struct TripJourney {
     trip_id: String,
     service_id: String,
     route_id: String,
+    route_name: String,
     train_type: String,
     train_number: String,
     stops: Vec<StopPoint>,
@@ -107,6 +110,7 @@ struct Leg {
     trip_id: String,
     service_id: String,
     route_id: String,
+    route_name: String,
     train_type: String,
     train_number: String,
     departure_stop: String,
@@ -188,8 +192,16 @@ struct StopMeta {
 struct TripMeta {
     route_id: String,
     service_id: String,
+    route_name: String,
     train_type: String,
     train_number: String,
+}
+
+#[derive(Debug, Clone)]
+struct RouteMeta {
+    description: String,
+    short_name: String,
+    long_name: String,
 }
 
 fn js_error(message: impl Into<String>) -> JsValue {
@@ -294,69 +306,76 @@ fn split_tokens(value: &str) -> Vec<String> {
         .collect()
 }
 
-fn product_label(token: &str) -> Option<&'static str> {
+fn service_label(token: &str) -> Option<&'static str> {
     match token {
-        "OUI" | "INOUI" => Some("INOUI"),
-        "OGO" | "OUIGO" => Some("OUIGO"),
+        "OUI" | "INOUI" => Some("TGV INOUI"),
+        "OGO" => Some("OUIGO Grande Vitesse"),
+        "OUIGO" => Some("OUIGO"),
         "TER" | "CTE" => Some("TER"),
-        "IC" | "INTERCITE" | "INTERCITES" => Some("INTERCITE"),
+        "IC" | "INTERCITE" | "INTERCITES" => Some("INTERCITÉS"),
+        "ICN" => Some("INTERCITÉS de nuit"),
+        "LYR" | "LYRIA" => Some("TGV Lyria"),
+        "ICE" => Some("ICE / DB–SNCF"),
+        "TT" => Some("Tram-train"),
+        "NAV" | "NAVETTE" | "NAVETTES" => Some("Shuttle"),
+        "EUROSTAR" | "THALYS" => Some("Eurostar"),
         _ => None,
     }
 }
 
-fn is_operational_code(value: &str) -> bool {
-    let chars = value.chars().collect::<Vec<_>>();
-    if chars.is_empty() || chars.iter().all(|char| char.is_ascii_digit()) {
-        return true;
-    }
-    let mut seen_digit = false;
-    let mut letter_count = 0;
-    for char in chars {
-        if char.is_ascii_uppercase() && !seen_digit {
-            letter_count += 1;
-            continue;
-        }
-        if char.is_ascii_digit() {
-            seen_digit = true;
-            continue;
-        }
-        if char.is_ascii_uppercase() && seen_digit {
-            continue;
-        }
-        return false;
-    }
-    seen_digit && (1..=3).contains(&letter_count)
+fn normalized_route_name(value: &str) -> Option<String> {
+    let compact = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let meaningful = compact
+        .chars()
+        .any(|character| character.is_alphanumeric());
+    meaningful.then_some(compact)
 }
 
-fn infer_train_type(parts: &[String]) -> String {
-    for part in parts {
+fn infer_train_type(
+    route_desc: &str,
+    route_short_name: &str,
+    route_long_name: &str,
+    trip_id: &str,
+) -> String {
+    let normalized_route = normalized_route_name(route_long_name).unwrap_or_default();
+    let route_upper = normalized_route.to_ascii_uppercase();
+
+    // SNCF's per-trip service code is the strongest signal. It distinguishes
+    // products that may share the same corridor, such as INOUI and OUIGO.
+    for token in split_tokens(trip_id) {
+        if token == "TRN" && (route_short_name == "361A" || route_upper == "PARIS - BRUXELLES") {
+            return "OUIGO Train Classique".to_string();
+        }
+        if let Some(label) = service_label(&token) {
+            return label.to_string();
+        }
+    }
+
+    // Some feeds put the rider-facing brand in route metadata instead.
+    let metadata = [route_desc, route_short_name, route_long_name];
+    if metadata
+        .iter()
+        .any(|value| value.to_ascii_uppercase().contains("OUIGO TRAIN CLASSIQUE"))
+    {
+        return "OUIGO Train Classique".to_string();
+    }
+    for part in metadata {
         for token in split_tokens(part) {
-            if let Some(label) = product_label(&token) {
+            if let Some(label) = service_label(&token) {
                 return label.to_string();
             }
         }
     }
-    for part in parts {
-        let text = part.trim();
-        if text.is_empty() || text.eq_ignore_ascii_case("nan") {
-            continue;
-        }
-        let compact = text.split_whitespace().collect::<Vec<_>>().join(" ");
-        let upper = compact.to_ascii_uppercase();
-        if is_operational_code(&upper) || upper.contains('-') || upper.contains(" TO ") {
-            continue;
-        }
-        let acronyms = split_tokens(&compact)
-            .into_iter()
-            .filter(|token| token.len() > 1)
-            .collect::<Vec<_>>();
-        if let Some(first) = acronyms.first() {
-            if !matches!(first.as_str(), "BUS" | "CAR" | "CARS" | "TRAIN" | "TGV" | "TRAM" | "METRO") {
-                return first.clone();
-            }
-        }
+
+    // These route names describe connections rather than a ticket brand, but
+    // they unambiguously identify a shuttle service.
+    if route_upper.contains("NAVETTE") {
+        return "Shuttle".to_string();
     }
-    "Train".to_string()
+
+    // A corridor name or a bare TGV suffix cannot reliably distinguish INOUI,
+    // OUIGO, or another international product.
+    "Unknown".to_string()
 }
 
 fn train_number(headsign: &str) -> String {
@@ -470,6 +489,7 @@ fn find_trip_segments(
                     trip_id: trip_id.clone(),
                     service_id: first.service_id.clone(),
                     route_id: first.route_id.clone(),
+                    route_name: first.route_name.clone(),
                     train_type: first.train_type.clone(),
                     train_number: first.train_number.clone(),
                     departure_stop: first.stop_name.clone(),
@@ -517,6 +537,7 @@ fn encode_trip_journeys(trips: &[TripJourney]) -> Vec<u8> {
         write_string(&mut buffer, &trip.trip_id);
         write_string(&mut buffer, &trip.service_id);
         write_string(&mut buffer, &trip.route_id);
+        write_string(&mut buffer, &trip.route_name);
         write_string(&mut buffer, &trip.train_type);
         write_string(&mut buffer, &trip.train_number);
         buffer.extend_from_slice(&(trip.stops.len() as u32).to_le_bytes());
@@ -556,6 +577,7 @@ fn encode_unrestricted_trip_journeys(
         write_string(&mut buffer, trip_id);
         write_string(&mut buffer, &first.service_id);
         write_string(&mut buffer, &first.route_id);
+        write_string(&mut buffer, &first.route_name);
         write_string(&mut buffer, &first.train_type);
         write_string(&mut buffer, &first.train_number);
         buffer.extend_from_slice(&(rows.len() as u32).to_le_bytes());
@@ -633,6 +655,7 @@ fn decode_trip_journeys(data: &[u8]) -> Result<Vec<TripJourney>, String> {
         let trip_id = reader.string()?;
         let service_id = reader.string()?;
         let route_id = reader.string()?;
+        let route_name = reader.string()?;
         let train_type = reader.string()?;
         let train_number = reader.string()?;
         let stop_count = reader.u32()? as usize;
@@ -653,6 +676,7 @@ fn decode_trip_journeys(data: &[u8]) -> Result<Vec<TripJourney>, String> {
             trip_id,
             service_id,
             route_id,
+            route_name,
             train_type,
             train_number,
             stops,
@@ -677,6 +701,7 @@ fn segment_from_journey(trip: &TripJourney, start_index: usize, end_index: usize
         trip_id: trip.trip_id.clone(),
         service_id: trip.service_id.clone(),
         route_id: trip.route_id.clone(),
+        route_name: trip.route_name.clone(),
         train_type: trip.train_type.clone(),
         train_number: trip.train_number.clone(),
         departure_stop: first.stop_name,
@@ -837,6 +862,7 @@ fn segment_to_leg(segment: &Segment) -> Leg {
         trip_id: segment.trip_id.clone(),
         service_id: segment.service_id.clone(),
         route_id: segment.route_id.clone(),
+        route_name: segment.route_name.clone(),
         train_type: segment.train_type.clone(),
         train_number: segment.train_number.clone(),
         departure_stop: segment.departure_stop.clone(),
@@ -1192,12 +1218,11 @@ fn build_context_data(bytes: &[u8], config: BuildConfig) -> Result<RouteContext,
     for row in &routes_rows {
         route_meta.insert(
             field(row, "route_id"),
-            vec![
-                field(row, "route_desc"),
-                field(row, "route_long_name"),
-                field(row, "route_short_name"),
-                field(row, "route_id"),
-            ],
+            RouteMeta {
+                description: field(row, "route_desc"),
+                short_name: field(row, "route_short_name"),
+                long_name: field(row, "route_long_name"),
+            },
         );
     }
 
@@ -1206,16 +1231,29 @@ fn build_context_data(bytes: &[u8], config: BuildConfig) -> Result<RouteContext,
     for row in &trips_rows {
         let route_id = field(row, "route_id");
         let headsign = field(row, "trip_headsign");
-        let mut parts = route_meta.get(&route_id).cloned().unwrap_or_default();
-        parts.push(headsign.clone());
-        parts.push(field(row, "trip_id"));
-        let train_type = infer_train_type(&parts);
+        let trip_id = field(row, "trip_id");
+        let route = route_meta.get(&route_id);
+        let route_name = route
+            .and_then(|metadata| normalized_route_name(&metadata.long_name))
+            .unwrap_or_default();
+        let train_type = route.map_or_else(
+            || "Unknown".to_string(),
+            |metadata| {
+                infer_train_type(
+                    &metadata.description,
+                    &metadata.short_name,
+                    &metadata.long_name,
+                    &trip_id,
+                )
+            },
+        );
         train_type_set.insert(train_type.clone());
         trips.insert(
-            field(row, "trip_id"),
+            trip_id,
             TripMeta {
                 route_id,
                 service_id: field(row, "service_id"),
+                route_name,
                 train_number: train_number(&headsign),
                 train_type,
             },
@@ -1250,6 +1288,7 @@ fn build_context_data(bytes: &[u8], config: BuildConfig) -> Result<RouteContext,
         by_trip.entry(trip_id.clone()).or_default().push(EnrichedStop {
             service_id: trip.service_id.clone(),
             route_id: trip.route_id.clone(),
+            route_name: trip.route_name.clone(),
             train_type: trip.train_type.clone(),
             train_number: trip.train_number.clone(),
             stop_name: stop.name.clone(),
@@ -1450,7 +1489,8 @@ mod tests {
             trip_id: id.to_string(),
             service_id: "service".to_string(),
             route_id: id.to_string(),
-            train_type: "Train".to_string(),
+            route_name: "Test corridor".to_string(),
+            train_type: "Unknown".to_string(),
             train_number: id.to_string(),
             stops: stops
                 .iter()
@@ -1495,6 +1535,7 @@ mod tests {
         assert_eq!(itineraries.len(), 1);
         assert_eq!(itineraries[0].transfer_count, 2);
         assert_eq!(itineraries[0].legs[1].trip_id, "middle");
+        assert_eq!(itineraries[0].legs[1].route_name, "Test corridor");
         assert_eq!(itineraries[0].destination_stop, "B");
     }
 
@@ -1515,6 +1556,122 @@ mod tests {
             train_types: Vec::new(),
             max_transfer_count: 2,
         }
+    }
+
+    #[test]
+    fn explicit_trip_codes_map_to_commercial_services() {
+        for (trip_code, expected) in [
+            ("OUI", "TGV INOUI"),
+            ("OGO", "OUIGO Grande Vitesse"),
+            ("IC", "INTERCITÉS"),
+            ("ICN", "INTERCITÉS de nuit"),
+            ("LYR", "TGV Lyria"),
+            ("ICE", "ICE / DB–SNCF"),
+            ("TER", "TER"),
+            ("CTE", "TER"),
+            ("TT", "Tram-train"),
+            ("NAV", "Shuttle"),
+        ] {
+            let trip_id = format!("OCESN123F1187_F:{trip_code}:route:origin:destination");
+            assert_eq!(
+                infer_train_type("", "421I", "Paris - La Rochelle TGV", &trip_id),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn corridor_names_are_details_not_guessed_service_types() {
+        assert_eq!(
+            infer_train_type(
+                "",
+                "361A",
+                "Paris - Bruxelles",
+                "OCESN50F1187_F:TRN:route"
+            ),
+            "OUIGO Train Classique"
+        );
+        assert_eq!(
+            infer_train_type(
+                "",
+                "N01",
+                "Navettes TGV HPI",
+                "OCESN123F1187_F:CRE:route"
+            ),
+            "Shuttle"
+        );
+        assert_eq!(
+            infer_train_type(
+                "",
+                "421I",
+                "Paris - Poitiers - La Rochelle TGV",
+                "OCESN123F1187_F:CRE:route"
+            ),
+            "Unknown"
+        );
+        assert_eq!(
+            infer_train_type(
+                "",
+                "INCONNU",
+                " -",
+                "OCESN123F1187_F:CRE:route"
+            ),
+            "Unknown"
+        );
+    }
+
+    #[test]
+    #[ignore = "inventory audit requiring www/data/gtfs.zip"]
+    fn audit_current_fixture_service_inventory() {
+        let bytes = std::fs::read("www/data/gtfs.zip").expect("www/data/gtfs.zip is required");
+        let routes_rows = read_zip_csv(&bytes, "routes.txt").expect("routes.txt should parse");
+        let trips_rows = read_zip_csv(&bytes, "trips.txt").expect("trips.txt should parse");
+        let route_meta = routes_rows
+            .iter()
+            .map(|row| {
+                (
+                    field(row, "route_id"),
+                    RouteMeta {
+                        description: field(row, "route_desc"),
+                        short_name: field(row, "route_short_name"),
+                        long_name: field(row, "route_long_name"),
+                    },
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        let mut counts = BTreeMap::new();
+        for row in &trips_rows {
+            let route_id = field(row, "route_id");
+            let label = route_meta.get(&route_id).map_or_else(
+                || "Unknown".to_string(),
+                |route| {
+                    infer_train_type(
+                        &route.description,
+                        &route.short_name,
+                        &route.long_name,
+                        &field(row, "trip_id"),
+                    )
+                },
+            );
+            *counts.entry(label).or_insert(0usize) += 1;
+        }
+
+        assert_eq!(
+            counts,
+            BTreeMap::from([
+                ("ICE / DB–SNCF".to_string(), 254),
+                ("INTERCITÉS".to_string(), 785),
+                ("INTERCITÉS de nuit".to_string(), 234),
+                ("OUIGO Grande Vitesse".to_string(), 591),
+                ("OUIGO Train Classique".to_string(), 106),
+                ("Shuttle".to_string(), 355),
+                ("TER".to_string(), 37_490),
+                ("TGV INOUI".to_string(), 8_326),
+                ("TGV Lyria".to_string(), 351),
+                ("Tram-train".to_string(), 452),
+                ("Unknown".to_string(), 98),
+            ])
+        );
     }
 
     #[test]

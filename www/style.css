@@ -112,7 +112,6 @@ h3 {
 .status,
 .source-panel,
 .config-panel,
-.dashboard-controls,
 .timeline {
   border: 1px solid #d8e0e8;
   background: #ffffff;
@@ -204,17 +203,13 @@ h3 {
   background: #ffffff;
 }
 
-.option-checklist.compact {
-  height: 118px;
-}
-
 .station-choice {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   min-height: 30px;
-  padding: 4px 8px;
+  padding: 3px 5px 3px 8px;
   border-bottom: 1px solid #eef2f6;
   font-weight: 500;
 }
@@ -223,21 +218,55 @@ h3 {
   background: #f1f5f9;
 }
 
-.station-choice input {
+.station-choice-toggle {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.station-choice-toggle input {
   width: auto;
   margin: 0;
 }
 
-.station-choice span {
+.station-choice-toggle span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.highlight-star {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #9ca3af;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.highlight-star:hover {
+  background: #e9eef4;
+  color: #6b7280;
+}
+
+.highlight-star[aria-pressed="true"] {
+  color: #eab308;
+}
+
+.highlight-star[aria-pressed="true"]:hover {
+  color: #ca8a04;
+}
+
 .time-config-panel {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 12px;
+  gap: 12px 20px;
   padding: 12px;
   margin-bottom: 14px;
   border: 1px solid #d8e0e8;
@@ -260,22 +289,18 @@ h3 {
   gap: 6px;
 }
 
-.dashboard-controls {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  align-items: end;
-  padding: 12px;
-  margin-bottom: 14px;
+.input-with-unit {
+  display: grid;
+  grid-template-columns: 92px max-content;
+  align-items: center;
+  justify-content: start;
+  gap: 7px;
 }
 
-.dashboard-controls label:first-child {
-  width: 220px;
-}
-
-.highlights-picker {
-  min-width: 320px;
-  flex: 1;
+.input-unit {
+  color: #526170;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .route-list-tabs {
@@ -318,14 +343,25 @@ h3 {
   font-weight: 700;
 }
 
-.refresh-routes {
-  background: #172033;
-  border-color: #172033;
-  color: #ffffff;
+.route-refresh-spinner {
+  width: 30px;
+  height: 30px;
+  border: 4px solid #d8e0e8;
+  border-top-color: #315f54;
+  border-radius: 50%;
+  animation: route-refresh-spin 800ms linear infinite;
 }
 
-.refresh-routes:hover {
-  background: #263348;
+@keyframes route-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.detail-route {
+  margin-top: 4px;
+  color: #526170;
+  font-size: 13px;
 }
 
 .timeline-scale {

@@ -36,7 +36,7 @@
 
       <section id="route-config-controls" class="config-panel">
         <fieldset class="station-picker" data-role="local_origins">
-          <legend>Side A stations</legend>
+          <legend>Departure stations</legend>
           <input class="station-filter" type="search" placeholder="Filter stations" data-role="local_origins" />
           <div id="config-local-origins" class="station-checklist"></div>
         </fieldset>
@@ -46,13 +46,13 @@
           <div id="config-connection-stations" class="station-checklist"></div>
         </fieldset>
         <fieldset class="station-picker" data-role="side_b_destinations">
-          <legend>Side B stations</legend>
+          <legend>Arrival stations</legend>
           <input class="station-filter" type="search" placeholder="Filter stations" data-role="side_b_destinations" />
           <div id="config-side-b-destinations" class="station-checklist"></div>
         </fieldset>
         <fieldset class="option-picker" data-role="train_types">
-          <legend>Train types</legend>
-          <input id="train-type-filter" class="option-filter" type="search" placeholder="Filter train types" />
+          <legend>Service / ticket brand</legend>
+          <input id="train-type-filter" class="option-filter" type="search" placeholder="Filter services" />
           <div id="config-train-types" class="option-checklist"></div>
         </fieldset>
       </section>
@@ -67,34 +67,38 @@
         </div>
         <label>
           Minimum transfer time
-          <input id="config-min-transfer" type="number" min="0" step="1" />
+          <span class="input-with-unit">
+            <input id="config-min-transfer" type="number" min="0" step="1" aria-describedby="min-transfer-unit" />
+            <span id="min-transfer-unit" class="input-unit">minutes</span>
+          </span>
         </label>
         <label>
           Maximum transfer time
-          <input id="config-max-transfer" type="number" min="0" step="1" />
+          <span class="input-with-unit">
+            <input id="config-max-transfer" type="number" min="0" step="1" aria-describedby="max-transfer-unit" />
+            <span id="max-transfer-unit" class="input-unit">minutes</span>
+          </span>
         </label>
         <label>
           Maximum transfers
-          <input id="config-max-transfer-count" type="number" min="0" step="1" />
+          <span class="input-with-unit">
+            <input id="config-max-transfer-count" type="number" min="0" step="1" aria-describedby="max-transfer-count-unit" />
+            <span id="max-transfer-count-unit" class="input-unit">transfers</span>
+          </span>
         </label>
         <label>
           Maximum journey duration
-          <input id="config-max-duration" type="number" min="0" step="1" />
+          <span class="input-with-unit">
+            <input id="config-max-duration" type="number" min="0" step="1" aria-describedby="max-duration-unit" />
+            <span id="max-duration-unit" class="input-unit">minutes</span>
+          </span>
         </label>
-      </section>
-
-      <section id="dashboard-controls" class="dashboard-controls">
-        <fieldset class="option-picker highlights-picker" data-role="highlights">
-          <legend>Highlights</legend>
-          <input id="highlight-filter" class="option-filter" type="search" placeholder="Filter highlights" />
-          <div id="highlight-stations" class="option-checklist compact"></div>
-        </fieldset>
       </section>
 
       <section class="route-list-tabs">
         <div id="route-direction-tabs" class="tab-buttons">
-          <button data-tab="out" class="selected">A-B</button>
-          <button data-tab="back">B-A</button>
+          <button data-tab="out" class="selected">Departure → Arrival</button>
+          <button data-tab="back">Arrival → Departure</button>
         </div>
         <section id="routes-time-chart" class="timeline">
           Load a GTFS archive to build routes.

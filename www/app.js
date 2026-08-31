@@ -19,6 +19,7 @@ const DEFAULT_CONFIG = {
 };
 const SERVER_GTFS_URL = "./data/gtfs.zip";
 const SETTINGS_STORAGE_KEY = "train-route-explorer-settings-v1";
+const AUTO_REFRESH_DELAY_MS = 300;
 
 function listSetting(value, fallback = []) {
   return Array.isArray(value) ? value.map(String).filter(Boolean).sort() : [...fallback];
@@ -70,10 +71,12 @@ const state = {
   selectedTab: storedSettings.selectedTab || "out",
   highlights: storedSettings.highlights || [],
   highlightsInitialized: storedSettings.found,
-  highlightOptions: [],
   availableDays: [],
   selectedDay: storedSettings.selectedDay || null,
   settingsDirty: false,
+  refreshInFlight: false,
+  routeRequestInFlight: false,
+  refreshTimer: null,
 };
 
 const worker = new Worker("./worker.js", { type: "module" });
@@ -99,8 +102,6 @@ const els = {
   maxDuration: $("#config-max-duration"),
   dayCalendar: $("#day-calendar"),
   todayBtn: $("#today-button"),
-  highlightFilter: $("#highlight-filter"),
-  highlights: $("#highlight-stations"),
   tabs: $("#route-direction-tabs"),
   timeline: $("#routes-time-chart"),
   detailLayer: $("#train-detail-dismiss-layer"),
@@ -214,15 +215,22 @@ function sortedFilteredOptions(options, selected, filterText = "") {
     });
 }
 
-function renderCheckboxList(container, options, selected, filterText, className = "station-choice") {
+function renderCheckboxList(container, options, selected, filterText, showHighlightStars = false) {
   const visibleOptions = sortedFilteredOptions(options, selected, filterText);
   container.innerHTML = visibleOptions.map((option) => {
     const checked = selected.has(option) ? "checked" : "";
+    const highlighted = state.highlights.includes(option);
+    const star = showHighlightStars
+      ? `<button class="highlight-star" type="button" data-highlight-station="${escapeHtml(option)}" aria-pressed="${highlighted}" aria-label="${highlighted ? "Remove highlight from" : "Highlight"} ${escapeHtml(option)}" title="${highlighted ? "Remove highlight" : "Highlight station"}">★</button>`
+      : "";
     return `
-      <label class="${className}" title="${escapeHtml(option)}">
-        <input type="checkbox" value="${escapeHtml(option)}" ${checked} />
-        <span>${escapeHtml(option)}</span>
-      </label>
+      <div class="station-choice">
+        <label class="station-choice-toggle" title="${escapeHtml(option)}">
+          <input type="checkbox" value="${escapeHtml(option)}" ${checked} />
+          <span>${escapeHtml(option)}</span>
+        </label>
+        ${star}
+      </div>
     `;
   }).join("");
 }
@@ -230,7 +238,7 @@ function renderCheckboxList(container, options, selected, filterText, className 
 function renderStationPicker(role, stations, config, filterText = "") {
   const container = stationContainer(role);
   const selected = selectedSet(config, role);
-  renderCheckboxList(container, stations.length ? stations : Array.from(selected), selected, filterText, "station-choice");
+  renderCheckboxList(container, stations.length ? stations : Array.from(selected), selected, filterText, true);
 }
 
 function renderStationPickers(stations, config = state.config) {
@@ -261,22 +269,7 @@ function syncSetValue(values, input) {
 }
 
 function renderTrainTypePicker(types, filterText = "") {
-  renderCheckboxList(els.trainTypes, types, new Set(state.config.train_types), filterText, "station-choice");
-}
-
-function highlightOptionsFromConfig() {
-  return Array.from(new Set([
-    ...state.config.local_origins,
-    ...state.config.connection_stations,
-    ...state.config.side_b_destinations,
-  ])).sort();
-}
-
-function renderHighlightPicker(filterText = "") {
-  state.highlightOptions = highlightOptionsFromConfig();
-  const valid = new Set(state.highlightOptions);
-  state.highlights = state.highlights.filter((station) => valid.has(station));
-  renderCheckboxList(els.highlights, state.highlightOptions, new Set(state.highlights), filterText, "station-choice");
+  renderCheckboxList(els.trainTypes, types, new Set(state.config.train_types), filterText);
 }
 
 function stationGroupLabel(stations) {
@@ -286,11 +279,11 @@ function stationGroupLabel(stations) {
 }
 
 function directionLabels() {
-  const local = stationGroupLabel(state.config.local_origins);
-  const sideB = stationGroupLabel(state.config.side_b_destinations);
+  const departure = stationGroupLabel(state.config.local_origins);
+  const arrival = stationGroupLabel(state.config.side_b_destinations);
   return {
-    out: `${local} to ${sideB}`,
-    back: `${sideB} to ${local}`,
+    out: `${departure} to ${arrival}`,
+    back: `${arrival} to ${departure}`,
   };
 }
 
@@ -315,24 +308,31 @@ function populateContextControls(context) {
     ? `Available service days: ${context.available_days.map(gtfsToIsoDate).join(", ")}`
     : "No available service days";
 
-  const selectedTypes = new Set(state.config.train_types.length ? state.config.train_types : context.train_types);
+  const availableTypes = new Set(context.train_types || []);
+  const storedTypesAreCurrent = state.config.train_types.length
+    && state.config.train_types.every((type) => availableTypes.has(type));
+  const selectedTypes = new Set(storedTypesAreCurrent ? state.config.train_types : context.train_types);
   state.config.train_types = Array.from(selectedTypes).sort();
   if (!state.highlightsInitialized) {
-    const initialHighlightOptions = highlightOptionsFromConfig();
-    if (state.config.local_origins.length && initialHighlightOptions.includes(state.config.local_origins[0])) {
+    if (state.config.local_origins.length) {
       state.highlights = [state.config.local_origins[0]];
     }
     state.highlightsInitialized = true;
   }
+  const availableStations = new Set(context.station_names || []);
+  state.highlights = state.highlights.filter((station) => availableStations.has(station));
   renderTrainTypePicker(context.train_types || [], els.trainTypeFilter.value);
-  renderHighlightPicker(els.highlightFilter.value);
   renderStationPickers(context.station_names || [], state.config);
   saveSettings();
 }
 
-function requestRoutes() {
+function requestRoutes(preserveTimeline = false) {
   if (!state.context) return;
-  setTimelinePlaceholder("Loading selected day...");
+  state.routeRequestInFlight = true;
+  setBusy(true);
+  if (!preserveTimeline) {
+    setTimelinePlaceholder("Loading selected day...");
+  }
   worker.postMessage({
     type: "routes",
     day: state.selectedDay || null,
@@ -367,23 +367,39 @@ function setTimelinePlaceholder(message) {
   els.timeline.innerHTML = `<div class="timeline-empty">${escapeHtml(message)}</div>`;
 }
 
+function renderRefreshNotice() {
+  els.timeline.innerHTML = `
+    <div class="timeline-empty refresh-notice" role="status" aria-live="polite">
+      <span class="route-refresh-spinner" aria-hidden="true"></span>
+      <span>Route settings changed. Refreshing routes automatically…</span>
+    </div>
+  `;
+}
+
 function showRefreshNotice() {
   state.config = readConfig();
   saveSettings();
   if (!state.context) return;
   state.settingsDirty = true;
   state.routes = { outward: [], returns: [], selected_day: state.selectedDay };
-  els.timeline.innerHTML = `
-    <div class="timeline-empty refresh-notice">
-      <span>Route settings changed.</span>
-      <button class="refresh-routes" type="button">Refresh routes</button>
-    </div>
-  `;
+  renderRefreshNotice();
+  scheduleRouteRefresh();
+}
+
+function scheduleRouteRefresh() {
+  if (state.refreshTimer !== null) {
+    clearTimeout(state.refreshTimer);
+    state.refreshTimer = null;
+  }
+  if (!state.context || state.refreshInFlight || state.routeRequestInFlight) return;
+  state.refreshTimer = window.setTimeout(refreshRoutes, AUTO_REFRESH_DELAY_MS);
 }
 
 function refreshRoutes() {
-  if (!state.context) return;
+  state.refreshTimer = null;
+  if (!state.context || state.refreshInFlight || !state.settingsDirty) return;
   state.settingsDirty = false;
+  state.refreshInFlight = true;
   state.config = readConfig();
   saveSettings();
   setBusy(true);
@@ -463,8 +479,12 @@ function syncSelectedTabButtons() {
 function showDetail(leg, event) {
   const stops = leg.journey_path || leg.path || [];
   const train = leg.train_number ? `${leg.train_type} ${leg.train_number}` : leg.train_type;
+  const corridor = leg.route_name
+    ? `<div class="detail-route">Corridor: ${escapeHtml(leg.route_name)}</div>`
+    : "";
   els.detailFrame.innerHTML = `
     <div class="detail-title">${escapeHtml(train)} | ${escapeHtml(leg.departure_stop)} ${escapeHtml(leg.departure_time)} -> ${escapeHtml(leg.destination_stop)} ${escapeHtml(leg.arrival_time)}</div>
+    ${corridor}
     <div class="detail-stops">
       ${stops.map((stop) => {
         const time = stop.arrival_time && stop.departure_time && stop.arrival_time !== stop.departure_time
@@ -497,13 +517,21 @@ worker.onmessage = (event) => {
     state.context = event.data.context;
     populateContextControls(state.context);
     setStatus(`Cache ready${event.data.cached ? " from browser cache" : ""}. GTFS service dates: ${state.context.coverage.label}.`, 100, "ready");
-    setBusy(false);
-    state.settingsDirty = false;
-    requestRoutes();
+    if (state.settingsDirty) {
+      state.refreshInFlight = false;
+      scheduleRouteRefresh();
+      return;
+    }
+    requestRoutes(state.refreshInFlight);
     return;
   }
   if (type === "routes") {
-    state.settingsDirty = false;
+    state.routeRequestInFlight = false;
+    state.refreshInFlight = false;
+    if (state.settingsDirty) {
+      scheduleRouteRefresh();
+      return;
+    }
     renderRoutes(event.data.result);
     setBusy(false);
     return;
@@ -515,6 +543,16 @@ worker.onmessage = (event) => {
     return;
   }
   if (type === "error") {
+    if (state.refreshTimer !== null) {
+      clearTimeout(state.refreshTimer);
+      state.refreshTimer = null;
+    }
+    state.refreshInFlight = false;
+    state.routeRequestInFlight = false;
+    state.settingsDirty = false;
+    if (els.timeline.querySelector(".route-refresh-spinner")) {
+      setTimelinePlaceholder("Unable to refresh routes. Check the error above.");
+    }
     setStatus(event.data.message, 0, "error");
     setBusy(false);
   }
@@ -573,8 +611,8 @@ els.tabs.addEventListener("click", (event) => {
   state.selectedTab = tab.dataset.tab;
   syncSelectedTabButtons();
   saveSettings();
-  if (state.settingsDirty) {
-    showRefreshNotice();
+  if (state.settingsDirty || state.refreshInFlight) {
+    renderRefreshNotice();
   } else {
     renderCurrentTab();
   }
@@ -583,11 +621,6 @@ els.timeline.addEventListener("click", (event) => {
   const bar = event.target.closest(".timeline-bar.train");
   if (!bar || !bar.dataset.detail) return;
   showDetail(JSON.parse(decodeURIComponent(bar.dataset.detail)), event);
-});
-els.timeline.addEventListener("click", (event) => {
-  if (event.target.closest(".refresh-routes")) {
-    refreshRoutes();
-  }
 });
 els.detailLayer.addEventListener("click", hideDetail);
 for (const filter of els.stationFilters) {
@@ -606,21 +639,6 @@ els.trainTypes.addEventListener("change", (event) => {
     showRefreshNotice();
   }
 });
-els.highlightFilter.addEventListener("input", () => {
-  renderHighlightPicker(els.highlightFilter.value);
-});
-els.highlights.addEventListener("change", (event) => {
-  if (event.target instanceof HTMLInputElement) {
-    state.highlights = syncSetValue(state.highlights, event.target);
-    saveSettings();
-    renderHighlightPicker(els.highlightFilter.value);
-    if (state.settingsDirty) {
-      showRefreshNotice();
-    } else {
-      renderCurrentTab();
-    }
-  }
-});
 for (const [role, container] of [
   ["local_origins", els.localOrigins],
   ["connection_stations", els.connectionStations],
@@ -631,8 +649,26 @@ for (const [role, container] of [
       syncStationState(role, event.target);
       saveSettings();
       renderStationPicker(role, state.context?.station_names || [], state.config, document.querySelector(`.station-filter[data-role="${role}"]`)?.value || "");
-      renderHighlightPicker(els.highlightFilter.value);
       showRefreshNotice();
+    }
+  });
+  container.addEventListener("click", (event) => {
+    const star = event.target.closest("[data-highlight-station]");
+    if (!star) return;
+    const station = star.dataset.highlightStation;
+    const highlights = new Set(state.highlights);
+    if (highlights.has(station)) {
+      highlights.delete(station);
+    } else {
+      highlights.add(station);
+    }
+    state.highlights = Array.from(highlights).sort();
+    saveSettings();
+    renderStationPickers(state.context?.station_names || [], state.config);
+    if (state.settingsDirty || state.refreshInFlight) {
+      renderRefreshNotice();
+    } else {
+      renderCurrentTab();
     }
   });
 }

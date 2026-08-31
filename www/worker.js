@@ -5,7 +5,7 @@ const DB_VERSION = 2;
 const CONTEXT_STORE = "contexts";
 const SOURCE_STORE = "sources";
 const LAST_SOURCE_KEY = "__last_source__";
-const CACHE_VERSION = "gtfs-context-v2";
+const CACHE_VERSION = "gtfs-context-v4";
 
 let wasmReady = false;
 let archiveBytes = null;

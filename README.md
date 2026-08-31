@@ -7,9 +7,11 @@ The app is designed for static hosting and does not need a backend.
 ## Features
 
 - Load a bundled GTFS zip or upload one in the browser.
-- Filter stations, train types, transfer points, transfer times, transfer counts, and journey duration. Clear every transfer point to allow transfers at any station.
-- Explore outward and return journeys with clickable train timelines.
+- Filter stations, commercial service types, transfer points, transfer times, transfer counts, and journey duration. Clear every transfer point to allow transfers at any station.
+- Explore outward and return journeys with clickable train timelines and automatic route refresh after setting changes.
 - Cache computed route context locally with IndexedDB.
+
+The bundled feed's audited commercial-service classification and conservative `Unknown` fallback are documented in [TRAIN_TYPES.md](TRAIN_TYPES.md).
 
 ## Data
 

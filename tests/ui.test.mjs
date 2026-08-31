@@ -162,6 +162,12 @@ async function main() {
     assert(await page.eval(`document.querySelector("#config-apply") === null`), "Old apply route settings button should not render");
     assert(await page.eval(`document.querySelector(".time-config-panel > :first-child #day-calendar")?.id === "day-calendar"`), "Day selector should be first in the time settings panel");
     assert(await page.eval(`document.querySelector("#today-button")?.textContent`) === "Today", "Today button should render beside the day selector");
+    assert(await page.eval(`Array.from(document.querySelectorAll(".input-unit")).map((node) => node.textContent).join(",")`) === "minutes,minutes,transfers,minutes", "Every numeric time setting should show its unit");
+    assert(await page.eval(`Array.from(document.querySelectorAll(".input-with-unit input")).every((input) => input.getBoundingClientRect().width <= 100)`) === true, "Numeric settings should use compact text boxes");
+    assert(await page.eval(`document.querySelector('[data-role="local_origins"] legend')?.textContent`) === "Departure stations", "Departure station list should use departure terminology");
+    assert(await page.eval(`document.querySelector('[data-role="side_b_destinations"] legend')?.textContent`) === "Arrival stations", "Arrival station list should use arrival terminology");
+    assert(await page.eval(`Array.from(document.querySelectorAll("#route-direction-tabs button")).map((button) => button.textContent).join("|")`) === "Departure → Arrival|Arrival → Departure", "Direction tabs should use departure and arrival terminology");
+    assert(await page.eval(`document.querySelector("#highlight-stations") === null`), "Separate Highlights panel should not render");
 
     await page.eval(`document.querySelector("#load-bundled").click()`);
     await waitFor(async () => {
@@ -179,13 +185,37 @@ async function main() {
     const loadedCounts = await page.eval(`({
       stationCount: document.querySelectorAll("#config-local-origins input[type='checkbox']").length,
       trainTypeCount: document.querySelectorAll("#config-train-types input[type='checkbox']").length,
-      highlightCount: document.querySelectorAll("#highlight-stations input[type='checkbox']").length,
+      departureStarCount: document.querySelectorAll("#config-local-origins .highlight-star").length,
+      arrivalStarCount: document.querySelectorAll("#config-side-b-destinations .highlight-star").length,
+      transferStarCount: document.querySelectorAll("#config-connection-stations .highlight-star").length,
+      trainTypeLabels: Array.from(document.querySelectorAll("#config-train-types .station-choice-toggle span")).map((node) => node.textContent),
       dayValue: document.querySelector("#day-calendar").value
     })`);
     assert(loadedCounts.stationCount > 0, "Station checkbox list should populate");
-    assert(loadedCounts.trainTypeCount > 0, "Train type checkbox list should populate");
-    assert(loadedCounts.highlightCount > 0, "Highlights checkbox list should populate");
+    assert(loadedCounts.trainTypeCount > 0, "Service checkbox list should populate");
+    assert(loadedCounts.departureStarCount > 0, "Departure stations should have highlight stars");
+    assert(loadedCounts.arrivalStarCount > 0, "Arrival stations should have highlight stars");
+    assert(loadedCounts.transferStarCount > 0, "Transfer stations should have highlight stars");
+    assert(!loadedCounts.trainTypeLabels.includes("421I"), "Opaque route codes should not render as services");
+    assert(!loadedCounts.trainTypeLabels.includes("Paris - Poitiers - La Rochelle TGV"), "Corridor names should not render as services");
+    assert(loadedCounts.trainTypeLabels.includes("TGV INOUI"), "TGV INOUI service should render");
+    assert(loadedCounts.trainTypeLabels.includes("OUIGO Grande Vitesse"), "OUIGO Grande Vitesse service should render");
+    assert(loadedCounts.trainTypeLabels.includes("TGV Lyria"), "TGV Lyria service should render");
+    assert(loadedCounts.trainTypeLabels.includes("Unknown"), "Unclassified trips should use the conservative Unknown label");
     assert(Boolean(loadedCounts.dayValue), "Calendar day should be selected after load");
+
+    const starToggle = await page.eval(`(() => {
+      const departureStar = document.querySelector("#config-local-origins .highlight-star");
+      const station = departureStar.dataset.highlightStation;
+      const before = departureStar.getAttribute("aria-pressed");
+      departureStar.click();
+      const departureAfter = Array.from(document.querySelectorAll("#config-local-origins .highlight-star")).find((star) => star.dataset.highlightStation === station)?.getAttribute("aria-pressed");
+      const transferAfter = Array.from(document.querySelectorAll("#config-connection-stations .highlight-star")).find((star) => star.dataset.highlightStation === station)?.getAttribute("aria-pressed");
+      const arrivalAfter = Array.from(document.querySelectorAll("#config-side-b-destinations .highlight-star")).find((star) => star.dataset.highlightStation === station)?.getAttribute("aria-pressed");
+      return { before, departureAfter, transferAfter, arrivalAfter };
+    })()`);
+    assert(starToggle.before !== starToggle.departureAfter, "Clicking a station star should toggle its highlight");
+    assert(starToggle.departureAfter === starToggle.transferAfter && starToggle.departureAfter === starToggle.arrivalAfter, "Highlight stars should stay synchronized across departure, transfer, and arrival lists");
 
     const timelineGuides = await waitFor(async () => page.eval(`(() => {
       const labels = Array.from(document.querySelectorAll(".timeline-scale span")).map((node) => node.getBoundingClientRect().left);
@@ -196,20 +226,22 @@ async function main() {
     assert(timelineGuides.lines.every((left, index) => Math.abs(left - timelineGuides.labels[index]) < 1), "Timeline guides should align with their time labels");
 
     const unrestrictedTransfers = await page.eval(`(() => {
-      const boxes = Array.from(document.querySelectorAll("#config-connection-stations input[type='checkbox']:checked"));
-      for (const box of boxes) {
+      let box = document.querySelector("#config-connection-stations input[type='checkbox']:checked");
+      while (box) {
         box.checked = false;
         box.dispatchEvent(new Event("change", { bubbles: true }));
+        box = document.querySelector("#config-connection-stations input[type='checkbox']:checked");
       }
       return {
         checked: document.querySelectorAll("#config-connection-stations input[type='checkbox']:checked").length,
-        refreshVisible: Boolean(document.querySelector(".refresh-routes"))
+        spinnerVisible: Boolean(document.querySelector(".route-refresh-spinner")),
+        refreshButtonVisible: Boolean(document.querySelector(".refresh-routes"))
       };
     })()`);
     assert(unrestrictedTransfers.checked === 0, "All transfer stations should be clear for unrestricted routing");
-    assert(unrestrictedTransfers.refreshVisible, "Clearing transfer stations should require a route refresh");
-    await page.eval(`document.querySelector(".refresh-routes").click()`);
-    await waitFor(async () => page.eval(`!document.querySelector(".refresh-routes") && Boolean(document.querySelector(".timeline-grid"))`), {
+    assert(unrestrictedTransfers.spinnerVisible, "Clearing transfer stations should show the automatic refresh spinner");
+    assert(!unrestrictedTransfers.refreshButtonVisible, "Automatic refresh should not show a manual refresh button");
+    await waitFor(async () => page.eval(`!document.querySelector(".route-refresh-spinner") && Boolean(document.querySelector(".timeline-grid"))`), {
       timeoutMs: 120_000,
       message: "unrestricted transfer routes to render",
     });
@@ -227,11 +259,10 @@ async function main() {
       assert(!result.laterChecked, `${label} should sort selected rows first`);
     }
 
-    await assertSelectedFirst("#config-local-origins", "Side A stations");
+    await assertSelectedFirst("#config-local-origins", "Departure stations");
     await assertSelectedFirst("#config-connection-stations", "Transfer stations");
-    await assertSelectedFirst("#config-side-b-destinations", "Side B stations");
-    await assertSelectedFirst("#config-train-types", "Train types");
-    await assertSelectedFirst("#highlight-stations", "Highlights");
+    await assertSelectedFirst("#config-side-b-destinations", "Arrival stations");
+    await assertSelectedFirst("#config-train-types", "Services");
 
     async function filterAndAssert(filterSelector, containerSelector, query, label) {
       const filterSelectorJson = JSON.stringify(filterSelector);
@@ -247,11 +278,10 @@ async function main() {
       assert(result.every((item) => item.toLowerCase().includes(query.toLowerCase())), `${label} filter should restrict visible rows`);
     }
 
-    await filterAndAssert('.station-filter[data-role="local_origins"]', "#config-local-origins", "Saujon", "Side A");
+    await filterAndAssert('.station-filter[data-role="local_origins"]', "#config-local-origins", "Saujon", "Departure");
     await filterAndAssert('.station-filter[data-role="connection_stations"]', "#config-connection-stations", "Poitiers", "Transfer");
-    await filterAndAssert('.station-filter[data-role="side_b_destinations"]', "#config-side-b-destinations", "Paris", "Side B");
-    await filterAndAssert("#train-type-filter", "#config-train-types", "TER", "Train type");
-    await filterAndAssert("#highlight-filter", "#highlight-stations", "Saujon", "Highlights");
+    await filterAndAssert('.station-filter[data-role="side_b_destinations"]', "#config-side-b-destinations", "Paris", "Arrival");
+    await filterAndAssert("#train-type-filter", "#config-train-types", "TER", "Service");
 
     async function toggleFirstVisible(containerSelector, label) {
       const containerSelectorJson = JSON.stringify(containerSelector);
@@ -269,22 +299,25 @@ async function main() {
       assert(result.before !== result.after, `${label} checkbox should toggle`);
     }
 
-    await toggleFirstVisible("#config-local-origins", "Side A station list");
+    await toggleFirstVisible("#config-local-origins", "Departure station list");
     await toggleFirstVisible("#config-connection-stations", "Transfer station list");
-    await toggleFirstVisible("#config-side-b-destinations", "Side B station list");
-    await toggleFirstVisible("#config-train-types", "Train type list");
+    await toggleFirstVisible("#config-side-b-destinations", "Arrival station list");
+    await toggleFirstVisible("#config-train-types", "Service list");
 
     const refreshPrompt = await page.eval(`({
       buttonCount: document.querySelectorAll(".refresh-routes").length,
+      spinnerCount: document.querySelectorAll(".route-refresh-spinner").length,
+      spinnerAnimation: getComputedStyle(document.querySelector(".route-refresh-spinner")).animationName,
       timelineText: document.querySelector("#routes-time-chart")?.textContent || "",
       textResultPanelCount: document.querySelectorAll(".list-panel, #routes-list, #routes-list-reverse").length
     })`);
-    assert(refreshPrompt.buttonCount === 1, "Route settings edits should replace results with one refresh button");
+    assert(refreshPrompt.buttonCount === 0, "Route settings edits should not show a manual refresh button");
+    assert(refreshPrompt.spinnerCount === 1, "Route settings edits should show one loading spinner");
+    assert(refreshPrompt.spinnerAnimation !== "none", "Automatic refresh spinner should animate");
     assert(refreshPrompt.timelineText.includes("Route settings changed"), "Timeline should explain that route settings changed");
     assert(refreshPrompt.textResultPanelCount === 0, "Textual result panels should not render");
 
-    await page.eval(`document.querySelector(".refresh-routes").click()`);
-    await waitFor(async () => page.eval(`document.querySelector("#cache-status-text")?.textContent.includes("Cache ready") && !document.querySelector(".refresh-routes")`), {
+    await waitFor(async () => page.eval(`document.querySelector("#cache-status-text")?.textContent.includes("Cache ready") && !document.querySelector(".route-refresh-spinner")`), {
       timeoutMs: 120_000,
       message: "route settings refresh to complete",
     });
@@ -301,25 +334,11 @@ async function main() {
       }
       return {
         checked: document.querySelectorAll("#config-connection-stations input[type='checkbox']:checked").length,
-        refreshVisible: Boolean(document.querySelector(".refresh-routes"))
+        spinnerVisible: Boolean(document.querySelector(".route-refresh-spinner"))
       };
     })()`);
     assert(noTransferStationsSelected.checked === 0, "Every transfer station checkbox should be unselectable");
-    assert(noTransferStationsSelected.refreshVisible, "Clearing transfer stations should require a route refresh");
-
-    const noHighlightsSelected = await page.eval(`(() => {
-      const filter = document.querySelector("#highlight-filter");
-      filter.value = "";
-      filter.dispatchEvent(new Event("input", { bubbles: true }));
-      let box = document.querySelector("#highlight-stations input[type='checkbox']:checked");
-      while (box) {
-        box.checked = false;
-        box.dispatchEvent(new Event("change", { bubbles: true }));
-        box = document.querySelector("#highlight-stations input[type='checkbox']:checked");
-      }
-      return document.querySelectorAll("#highlight-stations input[type='checkbox']:checked").length;
-    })()`);
-    assert(noHighlightsSelected === 0, "Every highlight checkbox should be unselectable");
+    assert(noTransferStationsSelected.spinnerVisible, "Clearing transfer stations should refresh routes automatically");
 
     const dayChanged = await page.eval(`(() => {
       const input = document.querySelector("#day-calendar");
