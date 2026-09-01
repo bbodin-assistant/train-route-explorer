@@ -1,4 +1,4 @@
-import { app } from "./app.js";
+import { app } from "./app.js?v=0.16";
 
 const FILTER_DELAY_MS = 120;
 const MAX_UNSELECTED_RESULTS = 100;
