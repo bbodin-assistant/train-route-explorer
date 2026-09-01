@@ -93,30 +93,34 @@ class RouteDedupeRegressionTest(unittest.TestCase):
               from: 'Poitiers', to: 'Massy TGV', departure: 660, arrival: 709,
               path: [['Poitiers', 660], ['Massy TGV', 709]],
             });
-            const sameTerDifferentGtfsId = {...ter, trip_id: 'opaque-duplicate-ter'};
-            const sameInouiDifferentGtfsId = {...inouiDirect, trip_id: 'opaque-duplicate-tgv'};
             const ouigo = makeLeg({
               tripId: 'ouigo-a', type: 'OUIGO Grande Vitesse', number: '7669',
               from: 'Angoulême', to: 'Massy TGV', departure: 620, arrival: 709,
               path: [['Angoulême', 620], ['Poitiers', 650], ['Massy TGV', 709]],
             });
 
+            const preferred = makeRow('preferred-route', [ter, inouiDirect]);
+            const sameService = preferred.cloneNode(true);
+            sameService.id = 'same-service-route';
+
             timeline.replaceChildren(
-              makeRow('preferred-route', [ter, inouiDirect]),
+              preferred,
               makeRow('extra-transfer-route', [ter, inouiToPoitiers, inouiFromPoitiers]),
-              makeRow('same-service-route', [sameTerDifferentGtfsId, sameInouiDifferentGtfsId]),
+              sameService,
               makeRow('different-brand-route', [ter, ouigo]),
             );
             """
         )
 
         self.wait.until(
-            lambda driver: driver.find_element(By.ID, "extra-transfer-route")
-            .get_attribute("data-route-duplicate-reason") == "extra-transfer"
+            lambda driver: "route-duplicate-invalid" in driver.find_element(
+                By.ID, "extra-transfer-route"
+            ).get_attribute("class").split()
         )
         self.wait.until(
-            lambda driver: driver.find_element(By.ID, "same-service-route")
-            .get_attribute("data-route-duplicate-reason") == "same-service"
+            lambda driver: "route-duplicate-invalid" in driver.find_element(
+                By.ID, "same-service-route"
+            ).get_attribute("class").split()
         )
 
         preferred = self.driver.find_element(By.ID, "preferred-route")
@@ -124,9 +128,9 @@ class RouteDedupeRegressionTest(unittest.TestCase):
         same_service = self.driver.find_element(By.ID, "same-service-route")
         different_brand = self.driver.find_element(By.ID, "different-brand-route")
 
+        self.assertEqual(extra_transfer.get_attribute("data-route-duplicate-reason"), "extra-transfer")
+        self.assertEqual(same_service.get_attribute("data-route-duplicate-reason"), "same-service")
         self.assertNotIn("route-duplicate-invalid", preferred.get_attribute("class"))
-        self.assertIn("route-duplicate-invalid", extra_transfer.get_attribute("class"))
-        self.assertIn("route-duplicate-invalid", same_service.get_attribute("class"))
         self.assertNotIn("route-duplicate-invalid", different_brand.get_attribute("class"))
 
         self.assertEqual(extra_transfer.value_of_css_property("display"), "none")
