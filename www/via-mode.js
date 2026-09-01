@@ -1,4 +1,7 @@
+import "./refresh-wait.js?v=0.15";
 import { app } from "./app.js?v=0.13";
+
+document.querySelector(".app-version")?.replaceChildren("v0.15");
 
 const STORAGE_KEY = "train-route-explorer-via-mode-v1";
 const timeline = document.querySelector("#routes-time-chart");
@@ -116,6 +119,7 @@ document.addEventListener("change", (event) => {
 });
 
 if (timeline) {
+  timeline.addEventListener("click", applyModeToTimeline, true);
   new MutationObserver(applyModeToTimeline).observe(timeline, {
     childList: true,
     subtree: true,
