@@ -143,8 +143,6 @@ if (detailFrame) {
   new MutationObserver(scheduleSync).observe(detailFrame, {
     childList: true,
     subtree: true,
-    attributes: true,
-    attributeFilter: ["class", "hidden"],
   });
   window.addEventListener("resize", scheduleSync);
 }
