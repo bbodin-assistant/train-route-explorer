@@ -55,7 +55,49 @@ fn transfers_from_legs(legs: &[Leg]) -> Vec<Transfer> {
         .collect()
 }
 
+fn itinerary_revisits_station(legs: &[Leg]) -> bool {
+    let mut seen = HashSet::new();
+    let mut previous_stop: Option<String> = None;
+
+    for leg in legs {
+        if leg.path.is_empty() {
+            for (index, station) in [leg.departure_stop.as_str(), leg.destination_stop.as_str()]
+                .into_iter()
+                .enumerate()
+            {
+                if index == 0 && previous_stop.as_deref() == Some(station) {
+                    continue;
+                }
+                if !seen.insert(station.to_string()) {
+                    return true;
+                }
+                previous_stop = Some(station.to_string());
+            }
+            continue;
+        }
+
+        for (index, stop) in leg.path.iter().enumerate() {
+            let station = stop.stop_name.as_str();
+            // A transfer station is represented as the final stop of one leg
+            // and the first stop of the next. That adjacent boundary duplicate
+            // is expected; any later occurrence means the route has looped.
+            if index == 0 && previous_stop.as_deref() == Some(station) {
+                continue;
+            }
+            if !seen.insert(station.to_string()) {
+                return true;
+            }
+            previous_stop = Some(station.to_string());
+        }
+    }
+
+    false
+}
+
 fn itinerary_record(legs: Vec<Leg>, selected_day: &str, direction: &str, max_duration: i32) -> Option<Itinerary> {
+    if itinerary_revisits_station(&legs) {
+        return None;
+    }
     let first = legs.first()?;
     let last = legs.last()?;
     let total_duration = last.arrival_minutes - first.departure_minutes;
@@ -415,4 +457,81 @@ pub(crate) fn routes_for_day_data_with_progress(
 pub(crate) fn routes_for_day_data(context: &RouteContext, request: &RouteRequest) -> Result<RouteResult, String> {
     let mut noop = |_: usize, _: usize| {};
     routes_for_day_data_with_progress(context, request, &mut noop)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::StopPoint;
+
+    fn time_label(minutes: i32) -> String {
+        format!("{:02}:{:02}:00", minutes / 60, minutes % 60)
+    }
+
+    fn stop(name: &str, minutes: i32) -> StopPoint {
+        StopPoint {
+            stop_name: name.to_string(),
+            arrival_time: time_label(minutes),
+            departure_time: time_label(minutes),
+            arrival_minutes: minutes,
+            departure_minutes: minutes,
+            lat: 0.0,
+            lon: 0.0,
+            in_segment: true,
+        }
+    }
+
+    fn leg(trip_id: &str, stops: &[(&str, i32)]) -> Leg {
+        let path = stops
+            .iter()
+            .map(|(name, minutes)| stop(name, *minutes))
+            .collect::<Vec<_>>();
+        let first = path.first().expect("leg needs a departure stop");
+        let last = path.last().expect("leg needs a destination stop");
+        Leg {
+            trip_id: trip_id.to_string(),
+            service_id: "service".to_string(),
+            route_id: "route".to_string(),
+            route_name: "route".to_string(),
+            train_type: "TER".to_string(),
+            train_number: trip_id.to_string(),
+            departure_stop: first.stop_name.clone(),
+            destination_stop: last.stop_name.clone(),
+            departure_time: first.departure_time.clone(),
+            arrival_time: last.arrival_time.clone(),
+            departure_minutes: first.departure_minutes,
+            arrival_minutes: last.arrival_minutes,
+            journey_path: path.clone(),
+            path,
+        }
+    }
+
+    #[test]
+    fn rejects_itinerary_that_passes_destination_then_returns_to_it() {
+        let legs = vec![
+            leg("7669", &[("Massy TGV", 492), ("Angoulême", 622)]),
+            leg(
+                "L16",
+                &[
+                    ("Angoulême", 638),
+                    ("Saintes", 699),
+                    ("Saujon", 723),
+                    ("Royan", 732),
+                ],
+            ),
+            leg("L17", &[("Royan", 752), ("Saujon", 759)]),
+        ];
+
+        assert!(itinerary_record(legs, "2026-09-01", "return", 1_440).is_none());
+    }
+
+    #[test]
+    fn allows_normal_transfer_station_boundary() {
+        let legs = vec![
+            leg("7669", &[("Massy TGV", 492), ("Angoulême", 622)]),
+            leg("L16", &[("Angoulême", 638), ("Saintes", 699), ("Saujon", 723)]),
+        ];
+
+        assert!(itinerary_record(legs, "2026-09-01", "return", 1_440).is_some());
+    }
 }
