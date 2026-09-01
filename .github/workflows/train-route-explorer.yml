@@ -32,12 +32,6 @@ jobs:
       - name: Build static site
         run: make build
 
-      - name: Set up Chrome
-        uses: browser-actions/setup-chrome@v1
-
-      - name: Set up ChromeDriver
-        uses: browser-actions/setup-chromedriver@v1
-
       - name: Install Selenium
         run: python3 -m pip install -r tests/requirements.txt
 
@@ -46,6 +40,7 @@ jobs:
           TEST_URL: http://127.0.0.1:8080/
           SELENIUM_WAIT_SECONDS: "180"
         run: |
+          google-chrome --version
           python3 -m http.server 8080 --directory dist >/tmp/train-route-explorer-http.log 2>&1 &
           SERVER_PID=$!
           trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
