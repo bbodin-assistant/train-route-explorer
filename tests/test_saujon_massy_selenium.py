@@ -130,10 +130,37 @@ class SaujonMassyRegressionTest(unittest.TestCase):
 
         print("SAUJON_MASSY_RESULT=" + json.dumps(result, ensure_ascii=False, sort_keys=True))
 
+        self.assertEqual(result["config"]["max_transfer_count"], 3)
+        self.assertEqual(result["config"]["max_journey_duration_minutes"], 270)
+
         visible = [row for row in result["visibleRows"] if row["display"] != "none"]
         self.assertTrue(visible, "Expected at least one Saujon → Massy TGV route via Angoulême")
+
+        schedules = {}
         for row in visible:
             self.assertNotEqual(row["loop_invalid"], "true", row)
+            legs = row["legs"]
+            self.assertTrue(legs, row)
+            key = (
+                legs[0]["from"],
+                legs[0]["departure_minutes"],
+                legs[-1]["to"],
+                legs[-1]["arrival_minutes"],
+            )
+            schedules.setdefault(key, set()).add(len(legs) - 1)
+
+        dominated = {key: counts for key, counts in schedules.items() if len(counts) > 1}
+        self.assertFalse(
+            dominated,
+            f"Same-schedule routes with extra transfers are still visible: {dominated}; rows={visible!r}",
+        )
+
+        # The current SNCF fixture contains two dominated pairs for this exact
+        # date. Keep this assertion focused on the transfer-count property rather
+        # than train IDs, which SNCF may regenerate.
+        for row in visible:
+            if row["legs"][0]["departure_minutes"] in (468, 944):
+                self.assertEqual(len(row["legs"]) - 1, 1, row)
 
 
 if __name__ == "__main__":
