@@ -27,7 +27,7 @@ function cancelFilterTimer(role) {
 }
 
 function stationCandidates(role, filterValue) {
-  const normalizedFilter = filterValue.trim().toLowerCase();
+  const normalizedFilter = filterValue.trim().toLocaleLowerCase();
   const selectedValues = app.state.config[role] || [];
   const selected = new Set(selectedValues);
   const candidates = [];
@@ -36,7 +36,7 @@ function stationCandidates(role, filterValue) {
   // Always keep every selected station that matches the current query. This
   // means the result cap never makes an existing selection inaccessible.
   for (const station of selectedValues) {
-    if (normalizedFilter && !station.toLowerCase().includes(normalizedFilter)) continue;
+    if (normalizedFilter && !station.toLocaleLowerCase().includes(normalizedFilter)) continue;
     if (seen.has(station)) continue;
     seen.add(station);
     candidates.push(station);
@@ -45,7 +45,7 @@ function stationCandidates(role, filterValue) {
   let unselectedCount = 0;
   for (const station of app.state.context?.station_names || []) {
     if (selected.has(station) || seen.has(station)) continue;
-    if (normalizedFilter && !station.toLowerCase().includes(normalizedFilter)) continue;
+    if (normalizedFilter && !station.toLocaleLowerCase().includes(normalizedFilter)) continue;
     seen.add(station);
     candidates.push(station);
     unselectedCount += 1;
@@ -111,14 +111,14 @@ function guardGlobalRouteSummaries() {
 }
 
 document.addEventListener("keydown", (event) => {
-  const filter = event.target.closest?.(".route-selector-panel .station-filter[data-role]");
-  if (!filter) return;
+  const filter = event.target.closest?.(".station-filter[data-role]");
+  if (!filter?.closest(".station-picker[data-role]")) return;
   cancelFilterTimer(filter.dataset.role);
 }, true);
 
 document.addEventListener("input", (event) => {
-  const filter = event.target.closest?.(".route-selector-panel .station-filter[data-role]");
-  if (!filter) return;
+  const filter = event.target.closest?.(".station-filter[data-role]");
+  if (!filter?.closest(".station-picker[data-role]")) return;
 
   // Stop the original app-events.js listener, which rebuilds the full station
   // list synchronously for each input event.
