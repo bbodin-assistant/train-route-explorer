@@ -9,6 +9,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 
 TEST_URL = os.environ.get("TEST_URL", "http://127.0.0.1:8080/")
+GTFS_FIXTURE_PATH = os.environ.get("GTFS_FIXTURE_PATH", "")
 WAIT_SECONDS = int(os.environ.get("SELENIUM_WAIT_SECONDS", "180"))
 FILTER_WAIT_SECONDS = int(os.environ.get("SELENIUM_FILTER_WAIT_SECONDS", "30"))
 
@@ -44,21 +45,27 @@ class StationFilterRegressionTest(unittest.TestCase):
         cls.wait.until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "[data-route-role='local_origins']"))
         )
-        cls._ensure_gtfs_loaded()
+        cls._load_gtfs_through_upload_ui()
 
     @classmethod
     def tearDownClass(cls):
         cls.driver.quit()
 
     @classmethod
-    def _ensure_gtfs_loaded(cls):
-        # Default route selections are rendered before any GTFS is available,
-        # so checkbox presence is NOT evidence that the station dataset loaded.
-        # This test uses a clean Chrome profile: explicitly load the bundled
-        # archive and wait for the application's real ready state.
-        bundled = cls.wait.until(EC.presence_of_element_located((By.ID, "load-bundled")))
-        cls.wait.until(lambda driver: bundled.is_enabled())
-        bundled.click()
+    def _load_gtfs_through_upload_ui(cls):
+        fixture = os.path.abspath(GTFS_FIXTURE_PATH)
+        if not GTFS_FIXTURE_PATH or not os.path.isfile(fixture):
+            raise AssertionError(f"GTFS fixture does not exist: {fixture!r}")
+
+        data_menu = cls.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".data-menu")))
+        if not data_menu.get_attribute("open"):
+            cls.wait.until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, ".data-menu > summary"))
+            ).click()
+
+        upload = cls.wait.until(EC.presence_of_element_located((By.ID, "gtfs-upload")))
+        upload.send_keys(fixture)
+        cls.wait.until(EC.element_to_be_clickable((By.ID, "load-upload"))).click()
 
         def ready_or_error(driver):
             status = driver.find_element(By.ID, "cache-status")
@@ -77,8 +84,11 @@ class StationFilterRegressionTest(unittest.TestCase):
             status = cls.driver.find_element(By.ID, "cache-status-text").text
             classes = cls.driver.find_element(By.ID, "cache-status").get_attribute("class")
             raise AssertionError(
-                f"Timed out waiting for GTFS context; status={status!r}, classes={classes!r}"
+                f"Timed out waiting for uploaded GTFS context; status={status!r}, classes={classes!r}"
             ) from exc
+
+        if data_menu.get_attribute("open"):
+            cls.driver.find_element(By.CSS_SELECTOR, ".data-menu > summary").click()
 
     def _open_route_selector(self, role):
         button_selector = f"[data-route-role='{role}']"
@@ -138,9 +148,6 @@ class StationFilterRegressionTest(unittest.TestCase):
             with self.subTest(role=role):
                 self._filter_for_paris(role)
 
-        # Departure defaults to Saujon/Saintes, so at least one Paris result
-        # must be available to add. Re-query the live DOM after each rerender
-        # rather than retaining stale WebElement handles.
         labels = self._filter_for_paris("local_origins")
         target_label = None
         for label in labels:
