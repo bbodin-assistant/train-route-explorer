@@ -171,7 +171,7 @@ function stopListForLeg(leg) {
   }
 
   if (!stops[0].departure_time) stops[0].departure_time = leg.departure_time;
-  if (!stops.at(-1).arrival_time) stops.at(-1].arrival_time = leg.arrival_time;
+  if (!stops.at(-1).arrival_time) stops.at(-1).arrival_time = leg.arrival_time;
   return stops;
 }
 
