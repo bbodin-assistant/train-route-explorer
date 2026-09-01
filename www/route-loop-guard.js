@@ -52,13 +52,7 @@ function rowHasStationLoop(row) {
   return false;
 }
 
-function serviceFamilyKey(legs) {
-  return Array.from(new Set(legs.map((leg) => String(leg?.train_type || "Unknown"))))
-    .sort()
-    .join("+");
-}
-
-function scheduleFamilyKey(row, legs) {
+function scheduleKey(row, legs) {
   const first = legs[0];
   const last = legs.at(-1);
   if (!first || !last) return "";
@@ -68,7 +62,6 @@ function scheduleFamilyKey(row, legs) {
     String(last.destination_stop || ""),
     Number(first.departure_minutes),
     Number(last.arrival_minutes),
-    serviceFamilyKey(legs),
   ].join("|");
 }
 
@@ -92,7 +85,9 @@ function markDuplicateRows(rows) {
     delete row.dataset.routeDuplicateInvalid;
     delete row.dataset.routeDuplicateReason;
 
-    if (row.classList.contains("route-loop-invalid")) continue;
+    // Via "only" mode uses the native hidden attribute. Do not let a route
+    // that is unavailable in the current Via mode dominate one that is valid.
+    if (row.hidden || row.classList.contains("route-loop-invalid")) continue;
     const legs = rowLegs(row);
     if (!legs.length) continue;
     candidates.push({
@@ -100,7 +95,7 @@ function markDuplicateRows(rows) {
       legs,
       transferCount: Math.max(0, legs.length - 1),
       commercialKey: commercialJourneyKey(row, legs),
-      scheduleKey: scheduleFamilyKey(row, legs),
+      scheduleKey: scheduleKey(row, legs),
     });
   }
 
@@ -117,10 +112,10 @@ function markDuplicateRows(rows) {
     seenCommercial.add(candidate.commercialKey);
   }
 
-  // If two options have exactly the same origin, departure, destination,
-  // arrival and service families, an option requiring more transfers is
-  // strictly worse. Keep every minimum-transfer alternative so genuinely
-  // different services at the same time are still available.
+  // For an identical origin/departure/destination/arrival schedule, an option
+  // with extra changes is dominated even when it introduces another brand on
+  // the way. Keep all minimum-transfer alternatives, so INOUI/OUIGO choices
+  // with the same number of changes remain visible.
   const bestTransferCount = new Map();
   for (const candidate of candidates) {
     if (candidate.row.classList.contains("route-duplicate-invalid")) continue;
@@ -155,6 +150,8 @@ if (timeline) {
   new MutationObserver(validateRenderedRows).observe(timeline, {
     childList: true,
     subtree: true,
+    attributes: true,
+    attributeFilter: ["hidden"],
   });
   validateRenderedRows();
   timeline.dataset.routeGuardReady = "true";
