@@ -24,7 +24,7 @@ const SERVER_GTFS_URL = "./data/gtfs.zip";
 const SETTINGS_STORAGE_KEY = "train-route-explorer-settings-v1";
 const AUTO_REFRESH_DELAY_MS = 300;
 const ROUTE_DAY_COUNT = 1;
-const ROUTE_PROTOCOL_VERSION = 3;
+const ROUTE_PROTOCOL_VERSION = 4;
 const TRAIN_TYPE_COLORS = {
   "TGV INOUI": "#2563eb",
   "OUIGO Grande Vitesse": "#c026d3",
