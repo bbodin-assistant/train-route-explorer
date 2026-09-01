@@ -155,4 +155,5 @@ if (timeline) {
     subtree: true,
   });
   validateRenderedRows();
+  timeline.dataset.routeGuardReady = "true";
 }
