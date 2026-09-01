@@ -12,7 +12,7 @@
       <div class="brand">
         <span class="brand-rail" aria-hidden="true"><i></i><i></i></span>
         <span>
-          <strong>Train Route Explorer <span class="app-version" style="margin-left:4px;color:#9aa09f;font-size:9px;font-weight:600;letter-spacing:0;vertical-align:baseline;">v0.14</span></strong>
+          <strong>Train Route Explorer <span class="app-version" style="margin-left:4px;color:#9aa09f;font-size:9px;font-weight:600;letter-spacing:0;vertical-align:baseline;">v0.15</span></strong>
           <small>working timetable</small>
         </span>
       </div>
@@ -116,8 +116,9 @@
                     <label>
                       Maximum journey duration
                       <span class="input-with-unit">
-                        <input id="config-max-duration" type="number" min="0" step="1" aria-describedby="max-duration-unit" />
-                        <span id="max-duration-unit" class="input-unit">minutes</span>
+                        <input id="config-max-duration" type="hidden" />
+                        <input id="config-max-duration-hours" type="number" min="0" step="1" aria-describedby="max-duration-unit" />
+                        <span id="max-duration-unit" class="input-unit">hours</span>
                       </span>
                     </label>
                   </section>
@@ -190,5 +191,7 @@
     <script type="module" src="./settings-actions.js?v=0.5"></script>
     <script type="module" src="./settings-layout.js?v=0.12"></script>
     <script type="module" src="./via-mode.js?v=0.14"></script>
+    <script type="module" src="./journey-detail-style.js?v=0.15"></script>
+    <script type="module" src="./duration-hours.js?v=0.15"></script>
   </body>
 </html>
