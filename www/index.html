@@ -123,52 +123,62 @@
                 <div class="drawer-panel data-panel">
                   <div class="drawer-heading">
                     <div>
-                      <span class="drawer-kicker">GTFS source</span>
-                      <h2>Timetable data</h2>
+                      <span class="drawer-kicker">Timetable source</span>
+                      <h2>GTFS archive</h2>
                     </div>
                   </div>
-                  <p>Use the bundled SNCF GTFS archive or upload another compatible GTFS zip.</p>
-                  <div class="data-actions">
-                    <button id="load-bundled-button" type="button">Load bundled SNCF GTFS</button>
-                    <label class="file-upload-label" for="gtfs-upload">Choose GTFS zip</label>
-                    <input id="gtfs-upload" type="file" accept=".zip,application/zip" />
-                    <button id="load-upload-button" type="button">Load uploaded GTFS</button>
-                  </div>
+                  <section class="source-panel">
+                    <div class="server-source">
+                      <span>Bundled SNCF data</span>
+                      <button id="load-bundled">Download GTFS</button>
+                    </div>
+                    <div class="upload-source">
+                      <label for="gtfs-upload">Use another GTFS zip</label>
+                      <div class="inline-control">
+                        <input id="gtfs-upload" type="file" accept=".zip,application/zip" />
+                        <button id="load-upload">Load</button>
+                      </div>
+                    </div>
+                  </section>
                 </div>
               </details>
             </div>
           </div>
 
-          <nav class="route-summary" aria-label="Route selection">
-            <button class="route-summary-stop" type="button" data-route-role="local_origins" aria-label="Edit departure stations">
+          <nav class="route-summary" aria-label="Configured route">
+            <button type="button" class="route-summary-stop" data-route-role="local_origins">
               <span>Departure</span>
               <strong data-route-value="local_origins">—</strong>
             </button>
             <span class="route-summary-arrow" aria-hidden="true">→</span>
-            <button class="route-summary-stop" type="button" data-route-role="connection_stations" aria-label="Edit transfer stations">
+            <button type="button" class="route-summary-stop" data-route-role="connection_stations">
               <span>Via</span>
               <strong data-route-value="connection_stations">—</strong>
             </button>
             <span class="route-summary-arrow" aria-hidden="true">→</span>
-            <button class="route-summary-stop" type="button" data-route-role="side_b_destinations" aria-label="Edit arrival stations">
+            <button type="button" class="route-summary-stop" data-route-role="side_b_destinations">
               <span>Arrival</span>
               <strong data-route-value="side_b_destinations">—</strong>
             </button>
           </nav>
         </header>
 
-        <section id="routes-time-chart" class="timeline" aria-live="polite"></section>
+        <section id="routes-time-chart" class="timeline">
+          Load a GTFS archive to build routes.
+        </section>
       </section>
     </main>
 
     <div id="train-detail-dismiss-layer" hidden></div>
-    <aside id="train-detail-frame" hidden aria-live="polite"></aside>
+    <aside id="train-detail-frame" hidden></aside>
 
     <script type="module" src="./app.js"></script>
-    <script type="module" src="./panels.js"></script>
     <script type="module" src="./layout.js"></script>
-    <script type="module" src="./switch-toggle.js"></script>
+    <script type="module" src="./panels.js"></script>
+    <script type="module" src="./sorting.js?grouped-sorting=2"></script>
     <script type="module" src="./row-details.js"></script>
+    <script type="module" src="./switch-toggle.js"></script>
+    <script type="module" src="./legend-config.js"></script>
     <script type="module" src="./station-actions.js"></script>
   </body>
 </html>
