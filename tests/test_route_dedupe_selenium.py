@@ -1,5 +1,6 @@
 import os
 import unittest
+from urllib.parse import urljoin
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -7,7 +8,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 
 TEST_URL = os.environ.get("TEST_URL", "http://127.0.0.1:8080/")
-WAIT_SECONDS = int(os.environ.get("SELENIUM_WAIT_SECONDS", "10"))
+WAIT_SECONDS = int(os.environ.get("ROUTE_DEDUPE_WAIT_SECONDS", "3"))
 
 
 class RouteDedupeRegressionTest(unittest.TestCase):
@@ -20,12 +21,10 @@ class RouteDedupeRegressionTest(unittest.TestCase):
         options.add_argument("--window-size=390,844")
         cls.driver = webdriver.Chrome(options=options)
         cls.wait = WebDriverWait(cls.driver, WAIT_SECONDS)
-        cls.driver.get(TEST_URL)
+        cls.driver.get(urljoin(TEST_URL, "route-guard-test.html"))
         cls.wait.until(
-            lambda driver: (
-                driver.find_element(By.ID, "routes-time-chart").get_attribute("data-route-guard-ready") == "true"
-                and "idle" in driver.find_element(By.ID, "cache-status").get_attribute("class").split()
-            )
+            lambda driver: driver.find_element(By.ID, "routes-time-chart")
+            .get_attribute("data-route-guard-ready") == "true"
         )
 
     @classmethod
