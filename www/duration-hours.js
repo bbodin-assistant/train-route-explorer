@@ -21,6 +21,7 @@ function commitHours() {
 
 hourInput?.addEventListener("change", commitHours);
 hourInput?.addEventListener("focus", syncHoursFromMinutes);
+window.addEventListener("load", syncHoursFromMinutes, { once: true });
 
 // app-events initializes the stored minute value asynchronously after app.js.
 // Sync a few times during startup so existing saved settings are reflected in hours.
