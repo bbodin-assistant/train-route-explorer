@@ -1,4 +1,4 @@
-import { app } from "./app.js?v=0.14";
+import { app } from "./app.js?v=0.13";
 
 const STORAGE_KEY = "train-route-explorer-via-mode-v1";
 const timeline = document.querySelector("#routes-time-chart");
