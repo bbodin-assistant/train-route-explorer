@@ -1,7 +1,8 @@
 import { app } from "./app.js";
 
-const FILTER_DELAY_MS = 350;
-const filterJobs = new Map();
+const FILTER_DELAY_MS = 120;
+const MAX_UNSELECTED_RESULTS = 100;
+const filterTimers = new Map();
 const stationRoles = ["local_origins", "connection_stations", "side_b_destinations"];
 
 function compactStationNames(values) {
@@ -16,54 +17,75 @@ function restoreRoleSummary(role) {
 }
 
 function scheduleRoleSummaryRestore(role) {
-  // layout.js observes picker DOM changes and derives the summary from the
-  // currently rendered checkboxes. A filtered picker only contains visible
-  // rows, so restore the summary from the authoritative global config after
-  // all mutation observers for this turn have run.
   queueMicrotask(() => restoreRoleSummary(role));
 }
 
-function cancelFilterJob(role) {
-  const job = filterJobs.get(role);
-  if (!job) return;
-  if (job.timer !== null) window.clearTimeout(job.timer);
-  if (job.idle !== null && "cancelIdleCallback" in window) window.cancelIdleCallback(job.idle);
-  filterJobs.delete(role);
+function cancelFilterTimer(role) {
+  const timer = filterTimers.get(role);
+  if (timer !== undefined) window.clearTimeout(timer);
+  filterTimers.delete(role);
+}
+
+function stationCandidates(role, filterValue) {
+  const normalizedFilter = filterValue.trim().toLowerCase();
+  const selectedValues = app.state.config[role] || [];
+  const selected = new Set(selectedValues);
+  const candidates = [];
+  const seen = new Set();
+
+  // Always keep every selected station that matches the current query. This
+  // means the result cap never makes an existing selection inaccessible.
+  for (const station of selectedValues) {
+    if (normalizedFilter && !station.toLowerCase().includes(normalizedFilter)) continue;
+    if (seen.has(station)) continue;
+    seen.add(station);
+    candidates.push(station);
+  }
+
+  let unselectedCount = 0;
+  for (const station of app.state.context?.station_names || []) {
+    if (selected.has(station) || seen.has(station)) continue;
+    if (normalizedFilter && !station.toLowerCase().includes(normalizedFilter)) continue;
+    seen.add(station);
+    candidates.push(station);
+    unselectedCount += 1;
+    if (unselectedCount >= MAX_UNSELECTED_RESULTS) break;
+  }
+
+  return candidates;
 }
 
 function renderFilter(role, filterValue) {
-  filterJobs.delete(role);
+  filterTimers.delete(role);
   app.renderStationPicker(
     role,
-    app.state.context?.station_names || [],
+    stationCandidates(role, filterValue),
     app.state.config,
     filterValue,
   );
   scheduleRoleSummaryRestore(role);
 }
 
-function scheduleFilter(role, filterValue) {
-  cancelFilterJob(role);
-  const job = { timer: null, idle: null };
+function trimStationChecklist(role) {
+  const picker = document.querySelector(`.station-picker[data-role="${role}"]`);
+  const checklist = picker?.querySelector(".station-checklist");
+  if (!checklist || checklist.childElementCount <= MAX_UNSELECTED_RESULTS) return;
 
-  job.timer = window.setTimeout(() => {
-    job.timer = null;
-    const run = () => {
-      if (filterJobs.get(role) !== job) return;
-      renderFilter(role, filterValue);
-    };
-
-    // Rebuilding a large station result list is expensive. Do it only after
-    // the user has paused, and preferably during an idle slice, so keystrokes
-    // and the input's own paint are never competing with the list rebuild.
-    if ("requestIdleCallback" in window) {
-      job.idle = window.requestIdleCallback(run, { timeout: 750 });
-    } else {
-      job.idle = window.setTimeout(run, 0);
+  const keep = [];
+  let unselectedCount = 0;
+  for (const row of Array.from(checklist.children)) {
+    const checked = row.querySelector('input[type="checkbox"]:checked');
+    if (checked) {
+      keep.push(row);
+      continue;
     }
-  }, FILTER_DELAY_MS);
+    if (unselectedCount < MAX_UNSELECTED_RESULTS) {
+      keep.push(row);
+      unselectedCount += 1;
+    }
+  }
 
-  filterJobs.set(role, job);
+  if (keep.length < checklist.childElementCount) checklist.replaceChildren(...keep);
 }
 
 function guardGlobalRouteSummaries() {
@@ -71,14 +93,19 @@ function guardGlobalRouteSummaries() {
     const picker = document.querySelector(`.station-picker[data-role="${role}"]`);
     if (!picker) continue;
 
-    new MutationObserver(() => scheduleRoleSummaryRestore(role)).observe(picker, {
+    new MutationObserver(() => {
+      // app.js can rebuild every station after GTFS context changes. Keep the
+      // live DOM small even before the user starts filtering; thousands of
+      // checkbox rows make ordinary text-input layout noticeably expensive.
+      trimStationChecklist(role);
+      scheduleRoleSummaryRestore(role);
+    }).observe(picker, {
       childList: true,
       subtree: true,
     });
 
-    // Checkbox changes update app.state.config before bubbling to the picker.
-    // Re-sync here as well so the button always represents the full selection.
     picker.addEventListener("change", () => scheduleRoleSummaryRestore(role));
+    trimStationChecklist(role);
     restoreRoleSummary(role);
   }
 }
@@ -86,30 +113,31 @@ function guardGlobalRouteSummaries() {
 document.addEventListener("keydown", (event) => {
   const filter = event.target.closest?.(".route-selector-panel .station-filter[data-role]");
   if (!filter) return;
-  // Cancel a pending expensive render before the next character is processed.
-  cancelFilterJob(filter.dataset.role);
+  cancelFilterTimer(filter.dataset.role);
 }, true);
 
 document.addEventListener("input", (event) => {
   const filter = event.target.closest?.(".route-selector-panel .station-filter[data-role]");
   if (!filter) return;
 
-  // Prevent app-events.js from rebuilding and sorting the full station list
-  // synchronously inside the keyboard input event.
+  // Stop the original app-events.js listener, which rebuilds the full station
+  // list synchronously for each input event.
   event.stopPropagation();
 
   const role = filter.dataset.role;
   const filterValue = filter.value;
+  cancelFilterTimer(role);
 
-  // Synthetic input is used by "Unselect all" to clear the filter before
-  // selecting rows. Keep that path synchronous so its behavior is unchanged.
+  // Synthetic input is used by station actions and should remain immediate.
   if (!event.isTrusted) {
-    cancelFilterJob(role);
     renderFilter(role, filterValue);
     return;
   }
 
-  scheduleFilter(role, filterValue);
+  // The eventual render contains at most the selected stations plus 100
+  // unselected matches, so it stays cheap enough not to block subsequent keys.
+  const timer = window.setTimeout(() => renderFilter(role, filterValue), FILTER_DELAY_MS);
+  filterTimers.set(role, timer);
 }, true);
 
 guardGlobalRouteSummaries();
