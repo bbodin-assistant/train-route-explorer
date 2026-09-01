@@ -6,6 +6,36 @@ switchToggleStyle.textContent = `
   .timeline-sticky-head {
     padding-top: 6px !important;
   }
+
+  @media (max-width: 900px) {
+    main {
+      height: calc(100vh - var(--header-height));
+      height: calc(100dvh - var(--header-height));
+      display: flex;
+      flex-direction: column;
+    }
+
+    .timetable-shell {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .timetable-toolbar {
+      flex: 0 0 auto;
+    }
+
+    .timeline {
+      flex: 1 1 auto;
+      height: auto;
+      min-height: 0;
+    }
+
+    .timeline-empty {
+      min-height: 100%;
+    }
+  }
 `;
 document.head.append(switchToggleStyle);
 
