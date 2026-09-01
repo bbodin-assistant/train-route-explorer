@@ -43,6 +43,35 @@ switchToggleStyle.textContent = `
       min-width: 0;
       justify-content: center;
     }
+
+    .timeline-sticky-meta {
+      position: sticky;
+      left: 0;
+      width: calc(100vw - 16px);
+      min-width: 0;
+      grid-template-columns: 150px minmax(0, 1fr);
+      z-index: 15;
+    }
+
+    .timeline-sticky-meta .timeline-legend {
+      min-width: 0 !important;
+      margin: 0 !important;
+      padding: 3px 6px 3px 8px !important;
+      justify-content: flex-start;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .timeline-sticky-meta .timeline-legend::-webkit-scrollbar {
+      display: none;
+    }
+
+    .timeline-sticky-meta .timeline-legend-item {
+      flex: 0 0 auto;
+    }
   }
 `;
 document.head.append(switchToggleStyle);
