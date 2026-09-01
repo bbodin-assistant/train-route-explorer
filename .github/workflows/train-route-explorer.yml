@@ -32,6 +32,25 @@ jobs:
       - name: Build static site
         run: make build
 
+      - name: Set up Chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Set up ChromeDriver
+        uses: browser-actions/setup-chromedriver@v1
+
+      - name: Install Selenium
+        run: python3 -m pip install -r tests/requirements.txt
+
+      - name: Test station filters with Selenium
+        env:
+          TEST_URL: http://127.0.0.1:8080/
+          SELENIUM_WAIT_SECONDS: "180"
+        run: |
+          python3 -m http.server 8080 --directory dist >/tmp/train-route-explorer-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          python3 tests/test_station_filter_selenium.py
+
       - name: Upload static site artifact
         uses: actions/upload-artifact@v4
         with:
