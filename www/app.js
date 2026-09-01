@@ -494,4 +494,4 @@ export const app = {
   writeConfig,
 };
 
-import("./app-events.js");
+import("./app-events.js?v=0.16");
