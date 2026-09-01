@@ -363,6 +363,35 @@ fn build_itineraries_with_progress(
     records
 }
 
+#[cfg(test)]
+pub(crate) fn build_itineraries(
+    direct_segments: Vec<Segment>,
+    first_leg_segments: Vec<Segment>,
+    transfer_segments: Vec<Segment>,
+    unrestricted_transfers: Option<&UnrestrictedTransferIndex<'_>>,
+    unrestricted_origins: &[String],
+    unrestricted_destinations: &[String],
+    final_leg_segments: Vec<Segment>,
+    selected_day: &str,
+    direction: &str,
+    request: &RouteRequest,
+) -> Vec<Itinerary> {
+    let mut noop = || {};
+    build_itineraries_with_progress(
+        direct_segments,
+        first_leg_segments,
+        transfer_segments,
+        unrestricted_transfers,
+        unrestricted_origins,
+        unrestricted_destinations,
+        final_leg_segments,
+        selected_day,
+        direction,
+        request,
+        &mut noop,
+    )
+}
+
 pub(crate) fn routes_for_day_data_with_progress(
     context: &RouteContext,
     request: &RouteRequest,
