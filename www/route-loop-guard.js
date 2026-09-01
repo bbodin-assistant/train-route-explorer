@@ -1,12 +1,13 @@
 const timeline = document.querySelector("#routes-time-chart");
 
-const loopGuardStyle = document.createElement("style");
-loopGuardStyle.textContent = `
-  .timeline-row.route-loop-invalid {
+const routeGuardStyle = document.createElement("style");
+routeGuardStyle.textContent = `
+  .timeline-row.route-loop-invalid,
+  .timeline-row.route-duplicate-invalid {
     display: none !important;
   }
 `;
-document.head.append(loopGuardStyle);
+document.head.append(routeGuardStyle);
 
 function decodeLeg(bar) {
   if (!bar?.dataset.detail) return null;
@@ -15,6 +16,12 @@ function decodeLeg(bar) {
   } catch {
     return null;
   }
+}
+
+function rowLegs(row) {
+  return Array.from(row.querySelectorAll(".timeline-bar.train[data-detail]"))
+    .map(decodeLeg)
+    .filter(Boolean);
 }
 
 function legStations(leg) {
@@ -29,9 +36,7 @@ function rowHasStationLoop(row) {
   const seen = new Set();
   let previous = "";
 
-  for (const bar of row.querySelectorAll(".timeline-bar.train[data-detail]")) {
-    const leg = decodeLeg(bar);
-    if (!leg) continue;
+  for (const leg of rowLegs(row)) {
     const stations = legStations(leg);
 
     for (const [index, station] of stations.entries()) {
@@ -47,13 +52,101 @@ function rowHasStationLoop(row) {
   return false;
 }
 
+function serviceFamilyKey(legs) {
+  return Array.from(new Set(legs.map((leg) => String(leg?.train_type || "Unknown"))))
+    .sort()
+    .join("+");
+}
+
+function scheduleFamilyKey(row, legs) {
+  const first = legs[0];
+  const last = legs.at(-1);
+  if (!first || !last) return "";
+  return [
+    String(row.dataset.day || ""),
+    String(first.departure_stop || ""),
+    String(last.destination_stop || ""),
+    Number(first.departure_minutes),
+    Number(last.arrival_minutes),
+    serviceFamilyKey(legs),
+  ].join("|");
+}
+
+function commercialJourneyKey(row, legs) {
+  const serviceLegs = legs.map((leg) => [
+    String(leg?.train_type || "Unknown"),
+    String(leg?.train_number || ""),
+    String(leg?.departure_stop || ""),
+    String(leg?.destination_stop || ""),
+    Number(leg?.departure_minutes),
+    Number(leg?.arrival_minutes),
+  ]);
+  return JSON.stringify([String(row.dataset.day || ""), serviceLegs]);
+}
+
+function markDuplicateRows(rows) {
+  const candidates = [];
+
+  for (const row of rows) {
+    row.classList.remove("route-duplicate-invalid");
+    delete row.dataset.routeDuplicateInvalid;
+    delete row.dataset.routeDuplicateReason;
+
+    if (row.classList.contains("route-loop-invalid")) continue;
+    const legs = rowLegs(row);
+    if (!legs.length) continue;
+    candidates.push({
+      row,
+      legs,
+      transferCount: Math.max(0, legs.length - 1),
+      commercialKey: commercialJourneyKey(row, legs),
+      scheduleKey: scheduleFamilyKey(row, legs),
+    });
+  }
+
+  // SNCF can expose multiple raw GTFS trip IDs for the same passenger-visible
+  // service. Timeline details deliberately ignore those opaque IDs here.
+  const seenCommercial = new Set();
+  for (const candidate of candidates) {
+    if (!seenCommercial.add(candidate.commercialKey)) {
+      candidate.row.classList.add("route-duplicate-invalid");
+      candidate.row.dataset.routeDuplicateInvalid = "true";
+      candidate.row.dataset.routeDuplicateReason = "same-service";
+    }
+  }
+
+  // If two options have exactly the same origin, departure, destination,
+  // arrival and service families, an option requiring more transfers is
+  // strictly worse. Keep every minimum-transfer alternative so genuinely
+  // different services at the same time are still available.
+  const bestTransferCount = new Map();
+  for (const candidate of candidates) {
+    if (candidate.row.classList.contains("route-duplicate-invalid")) continue;
+    const current = bestTransferCount.get(candidate.scheduleKey);
+    if (current === undefined || candidate.transferCount < current) {
+      bestTransferCount.set(candidate.scheduleKey, candidate.transferCount);
+    }
+  }
+  for (const candidate of candidates) {
+    if (candidate.row.classList.contains("route-duplicate-invalid")) continue;
+    const best = bestTransferCount.get(candidate.scheduleKey);
+    if (best !== undefined && candidate.transferCount > best) {
+      candidate.row.classList.add("route-duplicate-invalid");
+      candidate.row.dataset.routeDuplicateInvalid = "true";
+      candidate.row.dataset.routeDuplicateReason = "extra-transfer";
+    }
+  }
+}
+
 function validateRenderedRows() {
-  for (const row of timeline?.querySelectorAll(".timeline-row") || []) {
+  const rows = Array.from(timeline?.querySelectorAll(".timeline-row") || []);
+  for (const row of rows) {
     const invalid = rowHasStationLoop(row);
     row.classList.toggle("route-loop-invalid", invalid);
     if (invalid) row.dataset.routeLoopInvalid = "true";
     else delete row.dataset.routeLoopInvalid;
   }
+  markDuplicateRows(rows);
 }
 
 if (timeline) {
