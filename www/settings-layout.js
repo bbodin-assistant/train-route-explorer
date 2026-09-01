@@ -4,6 +4,18 @@ const maxTransfer = document.querySelector("#config-max-transfer");
 
 const settingsLayoutStyle = document.createElement("style");
 settingsLayoutStyle.textContent = `
+  .floating-drawer.route-settings-panel .drawer-heading {
+    border-bottom: 0 !important;
+    margin-bottom: 6px !important;
+    padding-bottom: 8px !important;
+  }
+
+  .floating-drawer.route-settings-panel .time-config-panel {
+    margin-top: 8px !important;
+    padding-top: 0 !important;
+    border-top: 0 !important;
+  }
+
   .transfer-time-group {
     grid-column: 1 / -1;
     min-width: 0;
