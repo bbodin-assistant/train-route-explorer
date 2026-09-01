@@ -1,7 +1,7 @@
 import { app } from "./app.js";
 
-const FILTER_DELAY_MS = 100;
-const filterTimers = new Map();
+const FILTER_DELAY_MS = 350;
+const filterJobs = new Map();
 const stationRoles = ["local_origins", "connection_stations", "side_b_destinations"];
 
 function compactStationNames(values) {
@@ -23,8 +23,16 @@ function scheduleRoleSummaryRestore(role) {
   queueMicrotask(() => restoreRoleSummary(role));
 }
 
+function cancelFilterJob(role) {
+  const job = filterJobs.get(role);
+  if (!job) return;
+  if (job.timer !== null) window.clearTimeout(job.timer);
+  if (job.idle !== null && "cancelIdleCallback" in window) window.cancelIdleCallback(job.idle);
+  filterJobs.delete(role);
+}
+
 function renderFilter(role, filterValue) {
-  filterTimers.delete(role);
+  filterJobs.delete(role);
   app.renderStationPicker(
     role,
     app.state.context?.station_names || [],
@@ -32,6 +40,30 @@ function renderFilter(role, filterValue) {
     filterValue,
   );
   scheduleRoleSummaryRestore(role);
+}
+
+function scheduleFilter(role, filterValue) {
+  cancelFilterJob(role);
+  const job = { timer: null, idle: null };
+
+  job.timer = window.setTimeout(() => {
+    job.timer = null;
+    const run = () => {
+      if (filterJobs.get(role) !== job) return;
+      renderFilter(role, filterValue);
+    };
+
+    // Rebuilding a large station result list is expensive. Do it only after
+    // the user has paused, and preferably during an idle slice, so keystrokes
+    // and the input's own paint are never competing with the list rebuild.
+    if ("requestIdleCallback" in window) {
+      job.idle = window.requestIdleCallback(run, { timeout: 750 });
+    } else {
+      job.idle = window.setTimeout(run, 0);
+    }
+  }, FILTER_DELAY_MS);
+
+  filterJobs.set(role, job);
 }
 
 function guardGlobalRouteSummaries() {
@@ -51,6 +83,13 @@ function guardGlobalRouteSummaries() {
   }
 }
 
+document.addEventListener("keydown", (event) => {
+  const filter = event.target.closest?.(".route-selector-panel .station-filter[data-role]");
+  if (!filter) return;
+  // Cancel a pending expensive render before the next character is processed.
+  cancelFilterJob(filter.dataset.role);
+}, true);
+
 document.addEventListener("input", (event) => {
   const filter = event.target.closest?.(".route-selector-panel .station-filter[data-role]");
   if (!filter) return;
@@ -61,20 +100,16 @@ document.addEventListener("input", (event) => {
 
   const role = filter.dataset.role;
   const filterValue = filter.value;
-  const previousTimer = filterTimers.get(role);
-  if (previousTimer !== undefined) window.clearTimeout(previousTimer);
 
   // Synthetic input is used by "Unselect all" to clear the filter before
   // selecting rows. Keep that path synchronous so its behavior is unchanged.
   if (!event.isTrusted) {
+    cancelFilterJob(role);
     renderFilter(role, filterValue);
     return;
   }
 
-  // Let the browser paint the typed character first, then coalesce rapid
-  // keystrokes and do the expensive list render after the user pauses briefly.
-  const timer = window.setTimeout(() => renderFilter(role, filterValue), FILTER_DELAY_MS);
-  filterTimers.set(role, timer);
+  scheduleFilter(role, filterValue);
 }, true);
 
 guardGlobalRouteSummaries();
