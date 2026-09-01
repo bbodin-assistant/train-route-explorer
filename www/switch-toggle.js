@@ -1,6 +1,7 @@
 const timeline = document.querySelector("#routes-time-chart");
 const directionTabs = document.querySelector("#route-direction-tabs");
 const detailFrame = document.querySelector("#train-detail-frame");
+const mobileTimelineQuery = window.matchMedia("(max-width: 900px)");
 
 const switchToggleStyle = document.createElement("style");
 switchToggleStyle.textContent = `
@@ -63,14 +64,27 @@ switchToggleStyle.textContent = `
       left: 0;
       width: calc(100vw - 16px);
       min-width: 0;
-      grid-template-columns: 150px minmax(0, 1fr);
+      grid-template-columns: 108px minmax(0, 1fr);
       z-index: 15;
+    }
+
+    .timeline-direction-switch {
+      width: 104px !important;
+      margin-left: 2px !important;
+      padding: 1px !important;
+    }
+
+    .timeline-direction-switch button {
+      min-height: 22px !important;
+      padding: 2px 4px !important;
+      font-size: 9px !important;
+      letter-spacing: 0 !important;
     }
 
     .timeline-sticky-meta .timeline-legend {
       min-width: 0 !important;
       margin: 0 !important;
-      padding: 3px 6px 3px 8px !important;
+      padding: 3px 6px 3px 6px !important;
       justify-content: flex-start;
       flex-wrap: nowrap;
       overflow-x: auto;
@@ -90,10 +104,36 @@ switchToggleStyle.textContent = `
 `;
 document.head.append(switchToggleStyle);
 
+function syncLegendLabels() {
+  for (const item of timeline?.querySelectorAll(".timeline-legend-item") || []) {
+    const textNode = Array.from(item.childNodes).find((node) => node.nodeType === Node.TEXT_NODE);
+    if (!textNode) continue;
+    if (textNode.textContent.trim() === "OUIGO Grande Vitesse") {
+      textNode.textContent = "TGV OUIGO";
+    }
+  }
+}
+
+function syncMobileDirectionLabels() {
+  for (const button of timeline?.querySelectorAll(".timeline-direction-switch [data-proxy-tab]") || []) {
+    const source = directionTabs?.querySelector(`[data-tab="${button.dataset.proxyTab}"]`);
+    const fullLabel = source?.textContent.trim() || button.textContent.trim();
+    const label = mobileTimelineQuery.matches
+      ? (button.dataset.proxyTab === "back" ? "Return" : "Out")
+      : fullLabel;
+    if (button.textContent !== label) button.textContent = label;
+    button.setAttribute("aria-label", fullLabel);
+  }
+}
+
 function installDirectionToggle() {
   const switchElement = timeline?.querySelector(".timeline-direction-switch");
-  if (!switchElement || switchElement.dataset.toggleBehavior === "true") return;
+  if (!switchElement) return;
 
+  syncLegendLabels();
+  syncMobileDirectionLabels();
+
+  if (switchElement.dataset.toggleBehavior === "true") return;
   switchElement.dataset.toggleBehavior = "true";
   switchElement.title = "Toggle journey direction";
   switchElement.addEventListener("click", (event) => {
@@ -123,5 +163,7 @@ if (timeline) {
     subtree: true,
   });
 }
+
+mobileTimelineQuery.addEventListener?.("change", syncMobileDirectionLabels);
 
 installDirectionToggle();
