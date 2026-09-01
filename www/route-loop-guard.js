@@ -108,11 +108,13 @@ function markDuplicateRows(rows) {
   // service. Timeline details deliberately ignore those opaque IDs here.
   const seenCommercial = new Set();
   for (const candidate of candidates) {
-    if (!seenCommercial.add(candidate.commercialKey)) {
+    if (seenCommercial.has(candidate.commercialKey)) {
       candidate.row.classList.add("route-duplicate-invalid");
       candidate.row.dataset.routeDuplicateInvalid = "true";
       candidate.row.dataset.routeDuplicateReason = "same-service";
+      continue;
     }
+    seenCommercial.add(candidate.commercialKey);
   }
 
   // If two options have exactly the same origin, departure, destination,
