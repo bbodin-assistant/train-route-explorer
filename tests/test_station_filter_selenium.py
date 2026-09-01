@@ -10,8 +10,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 TEST_URL = os.environ.get("TEST_URL", "http://127.0.0.1:8080/")
 GTFS_FIXTURE_PATH = os.environ.get("GTFS_FIXTURE_PATH", "")
-WAIT_SECONDS = int(os.environ.get("SELENIUM_WAIT_SECONDS", "180"))
-FILTER_WAIT_SECONDS = int(os.environ.get("SELENIUM_FILTER_WAIT_SECONDS", "30"))
+WAIT_SECONDS = int(os.environ.get("SELENIUM_WAIT_SECONDS", "10"))
+FILTER_WAIT_SECONDS = int(os.environ.get("SELENIUM_FILTER_WAIT_SECONDS", "3"))
 
 
 ROLE_TO_LIST = {
@@ -42,14 +42,29 @@ class StationFilterRegressionTest(unittest.TestCase):
         )
         cls.driver.get(TEST_URL)
 
-        cls.wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "[data-route-role='local_origins']"))
-        )
+        # Static buttons exist before layout.js has run. Wait for the actual
+        # interactive layout: inline route selectors installed and toolbar
+        # menus moved out of the hidden toolbar-primary container.
+        try:
+            cls.wait.until(
+                lambda driver: driver.execute_script(
+                    """
+                    return Boolean(
+                      document.querySelector('.route-summary-item[data-route-item="local_origins"]') &&
+                      document.querySelector('.data-menu')?.closest('.header-tools')
+                    );
+                    """
+                )
+            )
+        except TimeoutException as exc:
+            raise AssertionError("Interactive layout was not ready within 10 seconds") from exc
+
         cls._load_gtfs_through_upload_ui()
 
     @classmethod
     def tearDownClass(cls):
-        cls.driver.quit()
+        if hasattr(cls, "driver"):
+            cls.driver.quit()
 
     @classmethod
     def _load_gtfs_through_upload_ui(cls):
@@ -57,12 +72,12 @@ class StationFilterRegressionTest(unittest.TestCase):
         if not GTFS_FIXTURE_PATH or not os.path.isfile(fixture):
             raise AssertionError(f"GTFS fixture does not exist: {fixture!r}")
 
-        data_menu = cls.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".data-menu")))
+        data_menu = cls.driver.find_element(By.CSS_SELECTOR, ".data-menu")
+        summary = cls.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".data-menu > summary")))
         if not data_menu.get_attribute("open"):
-            cls.wait.until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, ".data-menu > summary"))
-            ).click()
+            summary.click()
 
+        cls.wait.until(lambda driver: driver.find_element(By.CSS_SELECTOR, ".data-menu").get_attribute("open"))
         upload = cls.wait.until(EC.presence_of_element_located((By.ID, "gtfs-upload")))
         upload.send_keys(fixture)
         cls.wait.until(EC.element_to_be_clickable((By.ID, "load-upload"))).click()
@@ -84,10 +99,11 @@ class StationFilterRegressionTest(unittest.TestCase):
             status = cls.driver.find_element(By.ID, "cache-status-text").text
             classes = cls.driver.find_element(By.ID, "cache-status").get_attribute("class")
             raise AssertionError(
-                f"Timed out waiting for uploaded GTFS context; status={status!r}, classes={classes!r}"
+                f"Uploaded GTFS was not ready within {WAIT_SECONDS}s; "
+                f"status={status!r}, classes={classes!r}"
             ) from exc
 
-        if data_menu.get_attribute("open"):
+        if cls.driver.find_element(By.CSS_SELECTOR, ".data-menu").get_attribute("open"):
             cls.driver.find_element(By.CSS_SELECTOR, ".data-menu > summary").click()
 
     def _open_route_selector(self, role):
@@ -125,16 +141,22 @@ class StationFilterRegressionTest(unittest.TestCase):
         try:
             labels = self.filter_wait.until(paris_labels)
         except TimeoutException as exc:
-            visible = [
-                node.text
-                for node in self.driver.find_elements(
-                    By.CSS_SELECTOR,
-                    f"#{checklist_id} .station-choice-toggle span",
-                )
-            ]
+            visible = []
+            for node in self.driver.find_elements(
+                By.CSS_SELECTOR,
+                f"#{checklist_id} .station-choice-toggle span",
+            ):
+                try:
+                    visible.append(node.text)
+                except StaleElementReferenceException:
+                    continue
+            live_filter = self.driver.find_element(
+                By.CSS_SELECTOR,
+                f".station-filter[data-role='{role}']",
+            ).get_attribute("value")
             raise AssertionError(
-                f"{role} produced no Paris result after typing; "
-                f"filter={filter_input.get_attribute('value')!r}, visible={visible[:12]!r}"
+                f"{role} produced no Paris result within {FILTER_WAIT_SECONDS}s; "
+                f"filter={live_filter!r}, visible={visible[:12]!r}"
             ) from exc
 
         self.assertTrue(
