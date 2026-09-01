@@ -1,6 +1,7 @@
 const trainTypeFilter = document.querySelector("#train-type-filter");
 const minTransfer = document.querySelector("#config-min-transfer");
 const maxTransfer = document.querySelector("#config-max-transfer");
+const routeTimeline = document.querySelector("#routes-time-chart");
 
 const settingsLayoutStyle = document.createElement("style");
 settingsLayoutStyle.textContent = `
@@ -14,6 +15,10 @@ settingsLayoutStyle.textContent = `
     margin-top: 8px !important;
     padding-top: 0 !important;
     border-top: 0 !important;
+  }
+
+  .timeline-label-duration[data-duration-band="good"] {
+    color: #15803d !important;
   }
 
   .timeline-label-duration[data-duration-band="middle"] {
@@ -118,6 +123,46 @@ function groupTransferTimes() {
 
   compactTransferLabel(minLabel, "Min");
   compactTransferLabel(maxLabel, "Max");
+}
+
+function parseDurationMinutes(text) {
+  const match = String(text || "").match(/(?:(\d+)h)?(\d+)(?:m)?/);
+  if (!match) return Number.NaN;
+  return Number(match[1] || 0) * 60 + Number(match[2]);
+}
+
+function applyRelativeDurationBands() {
+  if (!routeTimeline) return;
+  const entries = Array.from(routeTimeline.querySelectorAll(".timeline-label-duration"))
+    .map((element) => ({ element, minutes: parseDurationMinutes(element.textContent) }))
+    .filter((entry) => Number.isFinite(entry.minutes));
+  if (!entries.length) return;
+
+  const fastest = Math.min(...entries.map((entry) => entry.minutes));
+  const greenMax = fastest * 1.10;
+  const amberMax = fastest * 1.25;
+
+  for (const entry of entries) {
+    const band = entry.minutes <= greenMax ? "good" : entry.minutes <= amberMax ? "middle" : "bad";
+    if (entry.element.dataset.durationBand !== band) entry.element.dataset.durationBand = band;
+  }
+}
+
+let durationBandFrame = null;
+function scheduleRelativeDurationBands() {
+  if (durationBandFrame !== null) return;
+  durationBandFrame = requestAnimationFrame(() => {
+    durationBandFrame = null;
+    applyRelativeDurationBands();
+  });
+}
+
+if (routeTimeline) {
+  new MutationObserver(scheduleRelativeDurationBands).observe(routeTimeline, {
+    childList: true,
+    subtree: true,
+  });
+  scheduleRelativeDurationBands();
 }
 
 // Train types are a short fixed list; filtering adds UI cost without enough value.
