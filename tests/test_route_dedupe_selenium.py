@@ -21,7 +21,12 @@ class RouteDedupeRegressionTest(unittest.TestCase):
         cls.driver = webdriver.Chrome(options=options)
         cls.wait = WebDriverWait(cls.driver, WAIT_SECONDS)
         cls.driver.get(TEST_URL)
-        cls.wait.until(lambda driver: driver.find_element(By.ID, "routes-time-chart"))
+        cls.wait.until(
+            lambda driver: (
+                driver.find_element(By.ID, "routes-time-chart").get_attribute("data-route-guard-ready") == "true"
+                and "idle" in driver.find_element(By.ID, "cache-status").get_attribute("class").split()
+            )
+        )
 
     @classmethod
     def tearDownClass(cls):
