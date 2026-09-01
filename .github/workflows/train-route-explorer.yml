@@ -106,11 +106,13 @@ jobs:
         env:
           TEST_URL: http://127.0.0.1:8080/
           GTFS_FIXTURE_PATH: ${{ github.workspace }}/dist/data/gtfs.zip
+          ROUTE_DEDUPE_WAIT_SECONDS: "3"
           SELENIUM_WAIT_SECONDS: "10"
           SELENIUM_FILTER_WAIT_SECONDS: "3"
         run: |
           google-chrome --version
           test -s "$GTFS_FIXTURE_PATH"
+          cp tests/route_guard_fixture.html dist/route-guard-test.html
           python3 -m http.server 8080 --directory dist >/tmp/train-route-explorer-http.log 2>&1 &
           SERVER_PID=$!
           trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
