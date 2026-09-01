@@ -36,45 +36,6 @@ settingsLayoutStyle.textContent = `
     color: #b42318 !important;
   }
 
-  .journey-detail-transfer-edge {
-    min-height: 30px !important;
-  }
-
-  .journey-detail-transfer-edge > span {
-    grid-column: 3 !important;
-    grid-row: 1 !important;
-    align-self: center;
-    justify-self: start;
-    padding: 0 !important;
-    color: #805d11 !important;
-    font-size: 11px !important;
-    font-weight: 850 !important;
-  }
-
-  .journey-detail-transfer-edge > div {
-    display: none !important;
-  }
-
-  .journey-detail-transfer-edge i {
-    grid-column: 2 !important;
-    grid-row: 1 !important;
-    width: 2px !important;
-    height: 20px !important;
-    margin-top: 0 !important;
-    border: 0 !important;
-    border-radius: 0 !important;
-    background: #a16207 !important;
-    box-shadow: none !important;
-  }
-
-  .journey-detail-transfer-edge i::after {
-    top: 20px !important;
-    width: 2px !important;
-    height: var(--journey-connector-height, 24px) !important;
-    border: 0 !important;
-    background: #a16207 !important;
-  }
-
   .transfer-time-group {
     grid-column: 1 / -1;
     min-width: 0;
@@ -217,6 +178,6 @@ if (routeTimeline) {
 trainTypeFilter?.remove();
 groupTransferTimes();
 
-// Load graph-detail refinements after the legacy settings overrides so these
-// styles can define the final transfer-edge geometry and station emphasis.
-import("./journey-detail-style.js");
+// Load graph-detail refinements after the settings layout so the graph module
+// owns all transfer-edge geometry and station emphasis.
+import("./journey-detail-style.js?v=0.19");
