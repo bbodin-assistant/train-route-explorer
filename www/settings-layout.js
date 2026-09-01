@@ -216,3 +216,7 @@ if (routeTimeline) {
 // search control from the visible Settings UI.
 trainTypeFilter?.remove();
 groupTransferTimes();
+
+// Load graph-detail refinements after the legacy settings overrides so these
+// styles can define the final transfer-edge geometry and station emphasis.
+import("./journey-detail-style.js");
