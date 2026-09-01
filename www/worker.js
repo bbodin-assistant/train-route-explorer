@@ -6,8 +6,8 @@ const DB_VERSION = 2;
 const CONTEXT_STORE = "contexts";
 const SOURCE_STORE = "sources";
 const LAST_SOURCE_KEY = "__last_source__";
-const CACHE_VERSION = "gtfs-context-v4";
-const ROUTE_PROTOCOL_VERSION = 3;
+const CACHE_VERSION = "gtfs-context-v5";
+const ROUTE_PROTOCOL_VERSION = 4;
 
 let wasmReady = false;
 let archiveBytes = null;
@@ -85,7 +85,10 @@ function normalizedConfig(config) {
 function buildConfigForCore(config) {
   return {
     local_origins: config.local_origins,
-    connection_stations: config.connection_stations,
+    // Via stations are a route acceptance constraint, not a transfer whitelist.
+    // Build the core with unrestricted interchange stations so the router may
+    // transfer anywhere that is needed to reach a selected via station.
+    connection_stations: [],
     side_b_destinations: config.side_b_destinations,
     train_types: config.train_types,
     max_transfer_count: config.max_transfer_count,
@@ -318,6 +321,34 @@ function applyPublicTrainCodes(result) {
   return result;
 }
 
+function itineraryPassesVia(itinerary, requiredViaStations) {
+  const required = new Set((requiredViaStations || []).map(String).filter(Boolean));
+  if (!required.size) return true;
+
+  const departure = String(itinerary?.departure_stop || "");
+  const destination = String(itinerary?.destination_stop || "");
+  for (const leg of itinerary?.legs || []) {
+    const stations = [
+      String(leg.departure_stop || ""),
+      ...(leg.path || []).map((stop) => String(stop?.stop_name || "")),
+      String(leg.destination_stop || ""),
+    ];
+    if (stations.some((station) => station !== departure && station !== destination && required.has(station))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function applyRequiredVia(result, requiredViaStations) {
+  if (!(requiredViaStations || []).length) return result;
+  return {
+    ...result,
+    outward: (result.outward || []).filter((itinerary) => itineraryPassesVia(itinerary, requiredViaStations)),
+    returns: (result.returns || []).filter((itinerary) => itineraryPassesVia(itinerary, requiredViaStations)),
+  };
+}
+
 async function buildOrLoadContext(config) {
   if (!archiveBytes || !sourceMeta) {
     throw new Error("Load a GTFS archive first.");
@@ -374,13 +405,13 @@ async function computeRoutes(days, overrides = {}, onProgress = null, selectedDa
   for (const [index, day] of requestedDays.entries()) {
     const dayStartedAt = performance.now();
     routeDebug("worker", "service day routing started", { day, index: index + 1, total: requestedDays.length });
-    const dayResult = applyPublicTrainCodes(routes_for_day(activeContext, {
+    const dayResult = applyRequiredVia(applyPublicTrainCodes(routes_for_day(activeContext, {
       selected_day: day,
       min_transfer_minutes: config.min_transfer_minutes,
       max_transfer_minutes: config.max_transfer_minutes,
       max_transfer_count: config.max_transfer_count,
       max_journey_duration_minutes: config.max_journey_duration_minutes,
-    }));
+    })), config.connection_stations);
     result.outward.push(...(dayResult.outward || []));
     result.returns.push(...(dayResult.returns || []));
     routeDebug("worker", "service day routing completed", {
