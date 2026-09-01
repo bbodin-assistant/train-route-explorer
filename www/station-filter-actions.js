@@ -2,6 +2,7 @@ import { app } from "./app.js";
 
 const FILTER_DELAY_MS = 100;
 const filterTimers = new Map();
+const stationRoles = ["local_origins", "connection_stations", "side_b_destinations"];
 
 function compactStationNames(values) {
   if (!values.length) return "None";
@@ -14,6 +15,14 @@ function restoreRoleSummary(role) {
   if (value) value.textContent = compactStationNames(app.state.config[role] || []);
 }
 
+function scheduleRoleSummaryRestore(role) {
+  // layout.js observes picker DOM changes and derives the summary from the
+  // currently rendered checkboxes. A filtered picker only contains visible
+  // rows, so restore the summary from the authoritative global config after
+  // all mutation observers for this turn have run.
+  queueMicrotask(() => restoreRoleSummary(role));
+}
+
 function renderFilter(role, filterValue) {
   filterTimers.delete(role);
   app.renderStationPicker(
@@ -22,7 +31,24 @@ function renderFilter(role, filterValue) {
     app.state.config,
     filterValue,
   );
-  restoreRoleSummary(role);
+  scheduleRoleSummaryRestore(role);
+}
+
+function guardGlobalRouteSummaries() {
+  for (const role of stationRoles) {
+    const picker = document.querySelector(`.station-picker[data-role="${role}"]`);
+    if (!picker) continue;
+
+    new MutationObserver(() => scheduleRoleSummaryRestore(role)).observe(picker, {
+      childList: true,
+      subtree: true,
+    });
+
+    // Checkbox changes update app.state.config before bubbling to the picker.
+    // Re-sync here as well so the button always represents the full selection.
+    picker.addEventListener("change", () => scheduleRoleSummaryRestore(role));
+    restoreRoleSummary(role);
+  }
 }
 
 document.addEventListener("input", (event) => {
@@ -50,3 +76,5 @@ document.addEventListener("input", (event) => {
   const timer = window.setTimeout(() => renderFilter(role, filterValue), FILTER_DELAY_MS);
   filterTimers.set(role, timer);
 }, true);
+
+guardGlobalRouteSummaries();
