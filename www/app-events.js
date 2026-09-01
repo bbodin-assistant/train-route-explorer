@@ -1,4 +1,4 @@
-import { app } from "./app.js";
+import { app } from "./app.js?v=0.16";
 
 const {
   ROUTE_PROTOCOL_VERSION,
