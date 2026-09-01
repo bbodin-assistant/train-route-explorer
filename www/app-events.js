@@ -34,6 +34,92 @@ const {
   writeConfig,
 } = app;
 
+const routeProgressStyle = document.createElement("style");
+routeProgressStyle.textContent = `
+  .refresh-notice .route-refresh-work {
+    display: grid;
+    gap: 7px;
+    width: min(360px, calc(100% - 28px));
+    text-align: center;
+  }
+
+  .refresh-notice .route-refresh-work-title {
+    color: #39444d;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .refresh-notice .route-refresh-work-meter {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 9px;
+    min-width: 0;
+  }
+
+  .refresh-notice .route-refresh-work-percent {
+    color: #26313a;
+    font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+    font-size: 19px;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .refresh-notice .route-refresh-work-detail {
+    color: #747e85;
+    font-size: 10px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .refresh-notice .route-refresh-work-progress {
+    width: 100%;
+    height: 6px;
+    accent-color: #313d47;
+  }
+`;
+document.head.append(routeProgressStyle);
+
+function ensureRouteProgressNotice() {
+  const notice = els.timeline.querySelector(".refresh-notice");
+  if (!notice) return null;
+  if (!notice.querySelector(".route-refresh-work")) {
+    notice.innerHTML = `
+      <span class="route-refresh-spinner" aria-hidden="true"></span>
+      <span class="route-refresh-work">
+        <span class="route-refresh-work-title">Route settings changed. Refreshing routes automatically…</span>
+        <span class="route-refresh-work-meter">
+          <strong class="route-refresh-work-percent">0%</strong>
+          <span class="route-refresh-work-detail">Preparing route-search data…</span>
+        </span>
+        <progress class="route-refresh-work-progress" max="100" value="0"></progress>
+      </span>
+    `;
+  }
+  return notice;
+}
+
+function updateRouteProgressNotice(data) {
+  const notice = ensureRouteProgressNotice();
+  if (!notice) return;
+
+  const completed = Math.max(0, Number(data.completedWork || 0));
+  const total = Math.max(1, Number(data.totalWork || 1));
+  const percent = Math.max(0, Math.min(100, Number(data.percent ?? Math.floor((completed / total) * 100))));
+  const percentElement = notice.querySelector(".route-refresh-work-percent");
+  const detailElement = notice.querySelector(".route-refresh-work-detail");
+  const progressElement = notice.querySelector(".route-refresh-work-progress");
+
+  if (percentElement) percentElement.textContent = `${Math.floor(percent)}%`;
+  if (progressElement) progressElement.value = String(percent);
+  if (detailElement) {
+    const dayLabel = Number(data.totalDays || 1) > 1
+      ? `day ${data.dayIndex}/${data.totalDays} · `
+      : "";
+    detailElement.textContent = `${dayLabel}${completed}/${total} route-search batches computed`;
+  }
+}
+
 function resultForActiveRequest(result) {
   if (state.routeRequestMode !== "append") return result;
   const base = state.routeRequestBaseRoutes || { days: [], outward: [], returns: [] };
@@ -69,12 +155,15 @@ function requestMoreRoutes() {
 
 worker.onmessage = (event) => {
   const { type } = event.data;
-  if (["ready", "routes-progress", "routes", "error"].includes(type)) {
+  if (["ready", "route-work-progress", "routes-progress", "routes", "error"].includes(type)) {
     routeDebug("app", `worker message: ${type}`, {
       requestId: event.data.requestId ?? null,
       activeRequestId: state.routeRequestId,
       completedDays: event.data.completedDays ?? null,
       totalDays: event.data.totalDays ?? null,
+      completedWork: event.data.completedWork ?? null,
+      totalWork: event.data.totalWork ?? null,
+      percent: event.data.percent ?? null,
       resultDay: event.data.result?.selected_day ?? null,
       selectedDay: state.selectedDay,
       message: event.data.message ?? null,
@@ -82,19 +171,35 @@ worker.onmessage = (event) => {
   }
   if (type === "progress") {
     setBusy(true);
-    setStatus(event.data.message, event.data.progress, "loading");
+    const refreshNotice = ensureRouteProgressNotice();
+    setStatus(event.data.message, refreshNotice ? 0 : event.data.progress, "loading");
     return;
   }
   if (type === "ready") {
     state.context = event.data.context;
     populateContextControls(state.context);
-    setStatus(`Cache ready${event.data.cached ? " from browser cache" : ""}. GTFS service dates: ${state.context.coverage.label}.`, 100, "ready");
     if (state.settingsDirty) {
       state.refreshInFlight = false;
       scheduleRouteRefresh();
       return;
     }
+    if (state.refreshInFlight) {
+      ensureRouteProgressNotice();
+      setStatus("Preparing route search…", 0, "loading");
+    } else {
+      setStatus(`Cache ready${event.data.cached ? " from browser cache" : ""}. GTFS service dates: ${state.context.coverage.label}.`, 100, "ready");
+    }
     requestRoutes(state.refreshInFlight);
+    return;
+  }
+  if (type === "route-work-progress") {
+    if (event.data.requestId !== state.routeRequestId) return;
+    updateRouteProgressNotice(event.data);
+    setStatus(
+      `Computing routes: ${event.data.percent}% (${event.data.completedWork}/${event.data.totalWork} search batches).`,
+      event.data.percent,
+      "loading",
+    );
     return;
   }
   if (type === "routes-progress") {
