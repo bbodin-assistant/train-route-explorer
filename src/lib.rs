@@ -8,7 +8,7 @@ mod unrestricted;
 use context::build_context_data;
 use gtfs::minutes_to_duration;
 use model::{BuildConfig, RouteContext, RouteRequest};
-use routing::routes_for_day_data;
+use routing::{routes_for_day_data, routes_for_day_data_with_progress};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
@@ -38,6 +38,25 @@ pub fn routes_for_day(context_value: JsValue, request_value: JsValue) -> Result<
     let context: RouteContext = from_js(context_value)?;
     let request: RouteRequest = from_js(request_value)?;
     let result = routes_for_day_data(&context, &request).map_err(js_error)?;
+    to_js(&result)
+}
+
+#[wasm_bindgen]
+pub fn routes_for_day_with_progress(
+    context_value: JsValue,
+    request_value: JsValue,
+    progress_callback: js_sys::Function,
+) -> Result<JsValue, JsValue> {
+    let context: RouteContext = from_js(context_value)?;
+    let request: RouteRequest = from_js(request_value)?;
+    let mut report = |completed: usize, total: usize| {
+        let _ = progress_callback.call2(
+            &JsValue::NULL,
+            &JsValue::from_f64(completed as f64),
+            &JsValue::from_f64(total as f64),
+        );
+    };
+    let result = routes_for_day_data_with_progress(&context, &request, &mut report).map_err(js_error)?;
     to_js(&result)
 }
 
