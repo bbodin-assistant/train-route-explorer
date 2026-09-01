@@ -59,31 +59,56 @@ jobs:
       - name: Build static site
         run: make build
 
-      - name: Install Selenium
-        run: python3 -m pip install -r tests/requirements.txt
-
-      - name: Test station filters with Selenium
-        env:
-          TEST_URL: http://127.0.0.1:8080/
-          GTFS_FIXTURE_PATH: ${{ github.workspace }}/.ci-cache/sncf-gtfs.zip
-          SELENIUM_WAIT_SECONDS: "180"
-        run: |
-          google-chrome --version
-          python3 -m http.server 8080 --directory dist >/tmp/train-route-explorer-http.log 2>&1 &
-          SERVER_PID=$!
-          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
-          python3 tests/test_station_filter_selenium.py
-
       - name: Upload static site artifact
         uses: actions/upload-artifact@v4
         with:
           name: train-route-explorer-dist
           path: dist
 
+  selenium:
+    name: Selenium browser test
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download built site
+        uses: actions/download-artifact@v4
+        with:
+          name: train-route-explorer-dist
+          path: dist
+
+      - name: Install Selenium
+        run: python3 -m pip install -r tests/requirements.txt
+
+      - name: Test Paris station filtering
+        env:
+          TEST_URL: http://127.0.0.1:8080/
+          GTFS_FIXTURE_PATH: ${{ github.workspace }}/dist/data/gtfs.zip
+          SELENIUM_WAIT_SECONDS: "10"
+          SELENIUM_FILTER_WAIT_SECONDS: "3"
+        run: |
+          google-chrome --version
+          test -s "$GTFS_FIXTURE_PATH"
+          python3 -m http.server 8080 --directory dist >/tmp/train-route-explorer-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          python3 tests/test_station_filter_selenium.py
+
   deploy:
     name: Deploy
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: build
+    needs:
+      - build
+      - selenium
     runs-on: ubuntu-latest
     permissions:
       contents: read
