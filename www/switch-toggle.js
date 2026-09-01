@@ -30,6 +30,12 @@ switchToggleStyle.textContent = `
       flex-direction: column;
     }
 
+    .app-header > .day-control {
+      width: auto !important;
+      max-width: 100%;
+      justify-content: center;
+    }
+
     .timetable-shell {
       flex: 1 1 auto;
       min-height: 0;
@@ -84,7 +90,7 @@ switchToggleStyle.textContent = `
     .timeline-sticky-meta .timeline-legend {
       min-width: 0 !important;
       margin: 0 !important;
-      padding: 3px 6px 3px 6px !important;
+      padding: 3px 6px 3px 10px !important;
       justify-content: flex-start;
       flex-wrap: nowrap;
       overflow-x: auto;
@@ -99,6 +105,17 @@ switchToggleStyle.textContent = `
 
     .timeline-sticky-meta .timeline-legend-item {
       flex: 0 0 auto;
+    }
+
+    .timeline-sticky-meta .timeline-legend-item:first-child {
+      margin-left: auto;
+    }
+
+    .timeline-day-heading {
+      position: sticky !important;
+      top: 66px !important;
+      left: 0 !important;
+      z-index: 13 !important;
     }
   }
 `;
@@ -119,7 +136,7 @@ function syncMobileDirectionLabels() {
     const source = directionTabs?.querySelector(`[data-tab="${button.dataset.proxyTab}"]`);
     const fullLabel = source?.textContent.trim() || button.textContent.trim();
     const label = mobileTimelineQuery.matches
-      ? (button.dataset.proxyTab === "back" ? "Return" : "Out")
+      ? (button.dataset.proxyTab === "back" ? "Return" : "Outbound")
       : fullLabel;
     if (button.textContent !== label) button.textContent = label;
     button.setAttribute("aria-label", fullLabel);
