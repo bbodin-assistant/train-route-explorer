@@ -235,6 +235,35 @@ function installSelectorActions() {
   }
 }
 
+function syncHighlightButtons(station, highlighted) {
+  for (const button of document.querySelectorAll('[data-highlight-station]')) {
+    if (button.dataset.highlightStation !== station) continue;
+    button.setAttribute('aria-pressed', String(highlighted));
+    button.setAttribute('aria-label', `${highlighted ? 'Remove highlight from' : 'Highlight'} ${station}`);
+    button.title = highlighted ? 'Remove highlight' : 'Highlight station';
+  }
+}
+
+function toggleStationHighlight(star) {
+  const station = star.dataset.highlightStation;
+  if (!station) return;
+  const highlights = new Set(app.state.highlights);
+  const highlighted = !highlights.has(station);
+  if (highlighted) {
+    highlights.add(station);
+  } else {
+    highlights.delete(station);
+  }
+  app.state.highlights = Array.from(highlights).sort();
+  app.saveSettings();
+  syncHighlightButtons(station, highlighted);
+  if (app.state.settingsDirty || app.state.refreshInFlight) {
+    app.renderRefreshNotice();
+  } else {
+    app.renderCurrentTab();
+  }
+}
+
 for (const picker of stationPickers) installStationAction(picker);
 installSelectorActions();
 
@@ -263,6 +292,14 @@ document.addEventListener('change', (event) => {
 }, true);
 
 document.addEventListener('click', (event) => {
+  const star = event.target.closest('[data-highlight-station]');
+  if (star && star.closest('.route-selector-panel')) {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleStationHighlight(star);
+    return;
+  }
+
   const action = event.target.closest('[data-route-selector-action]');
   if (action) {
     event.preventDefault();
