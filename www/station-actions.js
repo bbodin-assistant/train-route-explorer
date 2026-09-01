@@ -1,4 +1,7 @@
+import { app } from "./app.js";
+
 const stationPickers = Array.from(document.querySelectorAll('.station-picker[data-role]'));
+const routeSummary = document.querySelector('.route-summary');
 
 const stationActionStyle = document.createElement('style');
 stationActionStyle.textContent = `
@@ -32,8 +35,53 @@ stationActionStyle.textContent = `
     cursor: default;
     text-decoration: none;
   }
+
+  .route-selector-actions {
+    position: sticky;
+    bottom: -8px;
+    z-index: 3;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin: 8px -8px -8px;
+    padding: 9px 8px 8px;
+    border-top: 1px solid #d9ddda;
+    background: #fffef9;
+  }
+
+  .route-selector-actions button {
+    min-height: 34px;
+    font-size: 11px;
+    font-weight: 800;
+  }
+
+  .route-selector-cancel {
+    border-color: #c5cbc8;
+    background: #f7f7f3;
+    color: #59636a;
+  }
+
+  .route-selector-apply {
+    border-color: #27323c;
+    background: #27323c;
+    color: #fff;
+  }
+
+  .route-selector-apply:hover:not(:disabled) {
+    background: #18222b;
+    color: #fff;
+  }
+
+  @media (max-width: 900px) {
+    .route-selector-actions button {
+      min-height: 42px;
+      font-size: 12px;
+    }
+  }
 `;
 document.head.append(stationActionStyle);
+
+let activeStationEdit = null;
 
 function checkedStations(picker) {
   return picker.querySelectorAll('.station-checklist input[type="checkbox"]:checked');
@@ -56,8 +104,6 @@ function unselectAll(picker, button) {
   clearStationFilter(picker);
   button.disabled = true;
 
-  // The app re-renders the checklist after every change, so re-query the
-  // current DOM each time rather than holding stale checkbox references.
   let safety = 0;
   while (safety < 1000) {
     const selected = picker.querySelector('.station-checklist input[type="checkbox"]:checked');
@@ -97,4 +143,155 @@ function installStationAction(picker) {
   syncUnselectButton(picker);
 }
 
+function compactStationNames(values) {
+  if (!values.length) return 'None';
+  if (values.length <= 2) return values.join(' / ');
+  return `${values[0]} / ${values[1]} +${values.length - 2}`;
+}
+
+function updateRoleSummary(role) {
+  const value = document.querySelector(`[data-route-value="${role}"]`);
+  if (value) value.textContent = compactStationNames(app.state.config[role] || []);
+}
+
+function pickerForRole(role) {
+  return document.querySelector(`.station-picker[data-role="${role}"]`);
+}
+
+function closeSelector(role) {
+  const item = document.querySelector(`.route-summary-item[data-route-item="${role}"]`);
+  if (!item) return;
+  const panel = item.querySelector('.route-selector-panel');
+  const button = item.querySelector('[data-route-role]');
+  if (panel) panel.hidden = true;
+  if (button) button.setAttribute('aria-expanded', 'false');
+}
+
+function sameStations(left, right) {
+  return left.length === right.length && left.every((station, index) => station === right[index]);
+}
+
+function beginStationEdit(role) {
+  if (activeStationEdit?.role === role) return;
+  if (activeStationEdit) cancelStationEdit(false);
+  activeStationEdit = {
+    role,
+    stations: [...(app.state.config[role] || [])],
+  };
+}
+
+function cancelStationEdit(close = true) {
+  if (!activeStationEdit) return;
+  const { role, stations } = activeStationEdit;
+  activeStationEdit = null;
+  app.state.config[role] = [...stations];
+  app.saveSettings();
+
+  const picker = pickerForRole(role);
+  const filterValue = picker?.querySelector('.station-filter')?.value || '';
+  app.renderStationPicker(role, app.state.context?.station_names || [], app.state.config, filterValue);
+  updateRoleSummary(role);
+  if (picker) syncUnselectButton(picker);
+  if (close) closeSelector(role);
+}
+
+function applyStationEdit() {
+  if (!activeStationEdit) return;
+  const { role, stations } = activeStationEdit;
+  const currentStations = [...(app.state.config[role] || [])];
+  activeStationEdit = null;
+  closeSelector(role);
+
+  if (sameStations(stations, currentStations)) {
+    app.saveSettings();
+    return;
+  }
+
+  app.saveSettings();
+  app.showRefreshNotice();
+}
+
+function installSelectorActions() {
+  for (const panel of document.querySelectorAll('.route-selector-panel')) {
+    if (panel.querySelector(':scope > .route-selector-actions')) continue;
+
+    const actions = document.createElement('div');
+    actions.className = 'route-selector-actions';
+
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'route-selector-cancel';
+    cancel.dataset.routeSelectorAction = 'cancel';
+    cancel.textContent = 'Cancel';
+
+    const apply = document.createElement('button');
+    apply.type = 'button';
+    apply.className = 'route-selector-apply';
+    apply.dataset.routeSelectorAction = 'apply';
+    apply.textContent = 'Apply';
+
+    actions.append(cancel, apply);
+    panel.append(actions);
+  }
+}
+
 for (const picker of stationPickers) installStationAction(picker);
+installSelectorActions();
+
+if (routeSummary) {
+  new MutationObserver(installSelectorActions).observe(routeSummary, {
+    childList: true,
+    subtree: true,
+  });
+}
+
+document.addEventListener('change', (event) => {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || input.type !== 'checkbox') return;
+  const picker = input.closest('.route-selector-panel .station-picker[data-role]');
+  if (!picker) return;
+  const role = picker.dataset.role;
+  if (!activeStationEdit || activeStationEdit.role !== role) return;
+
+  app.syncStationState(role, input);
+  updateRoleSummary(role);
+  syncUnselectButton(picker);
+
+  // Keep the edit local until Apply. In particular, prevent app-events.js
+  // from saving and starting the route/context refresh for every checkbox.
+  event.stopPropagation();
+}, true);
+
+document.addEventListener('click', (event) => {
+  const action = event.target.closest('[data-route-selector-action]');
+  if (action) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (action.dataset.routeSelectorAction === 'apply') {
+      applyStationEdit();
+    } else {
+      cancelStationEdit();
+    }
+    return;
+  }
+
+  const routeButton = event.target.closest('[data-route-role]');
+  if (routeButton) {
+    const role = routeButton.dataset.routeRole;
+    const opening = routeButton.getAttribute('aria-expanded') !== 'true';
+    if (opening) {
+      beginStationEdit(role);
+    } else if (activeStationEdit?.role === role) {
+      cancelStationEdit(false);
+    }
+    return;
+  }
+
+  if (activeStationEdit && !event.target.closest('.route-summary-item')) {
+    cancelStationEdit(false);
+  }
+}, true);
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && activeStationEdit) cancelStationEdit(false);
+}, true);
