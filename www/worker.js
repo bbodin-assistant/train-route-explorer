@@ -1,4 +1,4 @@
-import init, { build_context, routes_for_day } from "./pkg/train_route_explorer.js";
+import init, { build_context, routes_for_day_with_progress } from "./pkg/train_route_explorer.js";
 import { routeConfigSummary, routeDebug } from "./route-debug.js";
 
 const CACHE_DB = "train-route-explorer";
@@ -7,7 +7,7 @@ const CONTEXT_STORE = "contexts";
 const SOURCE_STORE = "sources";
 const LAST_SOURCE_KEY = "__last_source__";
 const CACHE_VERSION = "gtfs-context-v5";
-const ROUTE_PROTOCOL_VERSION = 4;
+const ROUTE_PROTOCOL_VERSION = 5;
 
 let wasmReady = false;
 let archiveBytes = null;
@@ -386,7 +386,7 @@ async function buildOrLoadContext(config) {
   });
 }
 
-async function computeRoutes(days, overrides = {}, onProgress = null, selectedDay = null) {
+async function computeRoutes(days, overrides = {}, onProgress = null, selectedDay = null, onWorkProgress = null) {
   if (!activeContext || !activeConfig) {
     throw new Error("Route context is not ready.");
   }
@@ -404,13 +404,28 @@ async function computeRoutes(days, overrides = {}, onProgress = null, selectedDa
   };
   for (const [index, day] of requestedDays.entries()) {
     const dayStartedAt = performance.now();
+    let lastReportedPercent = -1;
     routeDebug("worker", "service day routing started", { day, index: index + 1, total: requestedDays.length });
-    const dayResult = applyRequiredVia(applyPublicTrainCodes(routes_for_day(activeContext, {
+    const dayResult = applyRequiredVia(applyPublicTrainCodes(routes_for_day_with_progress(activeContext, {
       selected_day: day,
       min_transfer_minutes: config.min_transfer_minutes,
       max_transfer_minutes: config.max_transfer_minutes,
       max_transfer_count: config.max_transfer_count,
       max_journey_duration_minutes: config.max_journey_duration_minutes,
+    }, (completedWork, totalWork) => {
+      const completed = Math.max(0, Number(completedWork || 0));
+      const total = Math.max(1, Number(totalWork || 1));
+      const percent = Math.max(0, Math.min(100, Math.floor((completed / total) * 100)));
+      if (percent === lastReportedPercent && completed < total) return;
+      lastReportedPercent = percent;
+      onWorkProgress?.({
+        day,
+        dayIndex: index + 1,
+        totalDays: requestedDays.length,
+        completedWork: completed,
+        totalWork: total,
+        percent,
+      });
     })), config.connection_stations);
     result.outward.push(...(dayResult.outward || []));
     result.returns.push(...(dayResult.returns || []));
@@ -497,6 +512,7 @@ self.onmessage = async (event) => {
           totalDays,
         }),
         event.data.selectedDay,
+        (work) => post("route-work-progress", { requestId, ...work }),
       );
       post("routes", { requestId, result });
       return;
