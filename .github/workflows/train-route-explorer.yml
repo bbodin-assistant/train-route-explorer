@@ -30,8 +30,31 @@ jobs:
       - name: Install wasm-pack
         run: cargo install wasm-pack --locked --version 0.15.0
 
+      - name: Compute GTFS cache key
+        id: gtfs-cache-key
+        run: echo "period=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore SNCF GTFS cache
+        id: gtfs-cache
+        uses: actions/cache@v4
+        with:
+          path: .ci-cache/sncf-gtfs.zip
+          key: sncf-gtfs-${{ runner.os }}-${{ steps.gtfs-cache-key.outputs.period }}
+
       - name: Download SNCF GTFS archive
-        run: make fetch-gtfs
+        if: steps.gtfs-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p .ci-cache
+          curl --fail --location --retry 3 \
+            "https://eu.ftp.opendatasoft.com/sncf/plandata/Export_OpenData_SNCF_GTFS_NewTripId.zip" \
+            --output .ci-cache/sncf-gtfs.zip
+          unzip -tq .ci-cache/sncf-gtfs.zip >/dev/null
+
+      - name: Stage bundled GTFS for site
+        run: |
+          test -s .ci-cache/sncf-gtfs.zip
+          mkdir -p www/data
+          cp .ci-cache/sncf-gtfs.zip www/data/gtfs.zip
 
       - name: Build static site
         run: make build
@@ -42,6 +65,7 @@ jobs:
       - name: Test station filters with Selenium
         env:
           TEST_URL: http://127.0.0.1:8080/
+          GTFS_FIXTURE_PATH: ${{ github.workspace }}/.ci-cache/sncf-gtfs.zip
           SELENIUM_WAIT_SECONDS: "180"
         run: |
           google-chrome --version
