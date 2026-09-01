@@ -108,18 +108,20 @@ rowInteractionStyle.textContent = `
   }
 
   .journey-detail-transfer-edge i {
-    width: 0 !important;
-    height: 20px !important;
-    margin-top: 0 !important;
-    border: 0 !important;
-    border-left: 2px dashed #a16207 !important;
-    border-radius: 0 !important;
-    background: transparent !important;
+    width: 10px !important;
+    height: 10px !important;
+    margin-top: 3px !important;
+    border: 2px solid #a16207 !important;
+    border-radius: 50% !important;
+    background: #a16207 !important;
+    box-shadow: 0 0 0 2px #fff8df;
   }
 
   .journey-detail-transfer-edge i::after {
-    top: 20px !important;
+    top: 8px !important;
+    width: 2px !important;
     height: var(--journey-connector-height, 24px) !important;
+    border: 0 !important;
     background: var(--journey-line-color, #2563eb) !important;
   }
 
@@ -241,22 +243,24 @@ function buildJourneyItems(data) {
         const previousLeg = data.legs[legIndex - 1].leg;
         const wait = transferMinutes(previousLeg, leg);
 
-        previousItem.departureTime = stop.departure_time || leg.departure_time || previousItem.departureTime;
+        // Keep the arrival station as its own node, then insert the transfer
+        // edge. The current stop is still added below as the departure node
+        // for the next train, so an interchange appears on both sides.
         previousItem.lineColor = "#a16207";
         items.push({
           isTransferEdge: true,
           transferWait: wait,
-          nextService: serviceLabel(leg),
           lineColor: color,
         });
-        return;
       }
 
       items.push({
         isTransferEdge: false,
         station,
-        arrivalTime: stop.arrival_time || (isLastStop ? leg.arrival_time : ""),
-        departureTime: stop.departure_time || (isFirstStop ? leg.departure_time : ""),
+        // A journey leg starts at departure and ends at arrival. Ignore any
+        // through-service times outside the selected leg at those endpoints.
+        arrivalTime: isFirstStop ? "" : (stop.arrival_time || (isLastStop ? leg.arrival_time : "")),
+        departureTime: isLastStop && !isFirstStop ? "" : (stop.departure_time || (isFirstStop ? leg.departure_time : "")),
         service: isFirstStop ? serviceLabel(leg) : "",
         nodeColor: color,
         lineColor: color,
@@ -283,9 +287,6 @@ function nodeNote(node) {
 
 function transferEdgeHtml(edge) {
   const wait = Number.isFinite(edge.transferWait) ? `${edge.transferWait} min` : "Change";
-  const nextService = edge.nextService
-    ? `<span class="journey-detail-note">Continue with ${escapeText(edge.nextService)}</span>`
-    : "";
 
   return `
     <div class="detail-stop journey-detail-transfer-edge" style="--journey-line-color:${escapeText(edge.lineColor)}">
@@ -293,7 +294,6 @@ function transferEdgeHtml(edge) {
       <i aria-hidden="true"></i>
       <div>
         <strong>Transfer</strong>
-        ${nextService}
       </div>
     </div>
   `;
@@ -327,7 +327,7 @@ function syncJourneyConnectorHeights() {
     const connectorStart = row.classList.contains("journey-detail-transfer-edge")
       ? markerRect.bottom
       : markerRect.top + 10;
-    const connectorEnd = nextRect.top + (nextRect.height / 2);
+    const connectorEnd = nextMarker.getBoundingClientRect().top + (nextRect.height / 2);
     row.style.setProperty("--journey-connector-height", `${Math.max(0, connectorEnd - connectorStart)}px`);
   });
 }
