@@ -102,7 +102,7 @@ jobs:
       - name: Install Selenium
         run: python3 -m pip install -r tests/requirements.txt
 
-      - name: Test Paris station filtering
+      - name: Test browser regressions
         env:
           TEST_URL: http://127.0.0.1:8080/
           GTFS_FIXTURE_PATH: ${{ github.workspace }}/dist/data/gtfs.zip
@@ -114,6 +114,7 @@ jobs:
           python3 -m http.server 8080 --directory dist >/tmp/train-route-explorer-http.log 2>&1 &
           SERVER_PID=$!
           trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          python3 tests/test_route_dedupe_selenium.py
           python3 tests/test_station_filter_selenium.py
 
   deploy:
