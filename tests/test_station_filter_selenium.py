@@ -354,19 +354,22 @@ class StationFilterRegressionTest(unittest.TestCase):
             self._set_window(DESKTOP_SIZE)
 
     def test_35_direction_switch_tracks_selected_direction(self):
-        switch = self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".timeline-direction-switch")))
-        return_button = switch.find_element(By.CSS_SELECTOR, "[data-proxy-tab='back']")
-        outward_button = switch.find_element(By.CSS_SELECTOR, "[data-proxy-tab='out']")
+        return_selector = ".timeline-direction-switch [data-proxy-tab='back']"
+        outward_selector = ".timeline-direction-switch [data-proxy-tab='out']"
 
-        return_button.click()
-        self.wait.until(lambda driver: return_button.get_attribute("aria-pressed") == "true")
+        self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, return_selector))).click()
+        self.wait.until(
+            lambda driver: driver.find_element(By.CSS_SELECTOR, return_selector).get_attribute("aria-pressed") == "true"
+        )
         self.assertIn(
             "selected",
             self.driver.find_element(By.CSS_SELECTOR, "#route-direction-tabs [data-tab='back']").get_attribute("class"),
         )
 
-        outward_button.click()
-        self.wait.until(lambda driver: outward_button.get_attribute("aria-pressed") == "true")
+        self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, outward_selector))).click()
+        self.wait.until(
+            lambda driver: driver.find_element(By.CSS_SELECTOR, outward_selector).get_attribute("aria-pressed") == "true"
+        )
         self.assertIn(
             "selected",
             self.driver.find_element(By.CSS_SELECTOR, "#route-direction-tabs [data-tab='out']").get_attribute("class"),
