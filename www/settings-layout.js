@@ -2,6 +2,13 @@ const trainTypeFilter = document.querySelector("#train-type-filter");
 const minTransfer = document.querySelector("#config-min-transfer");
 const maxTransfer = document.querySelector("#config-max-transfer");
 const routeTimeline = document.querySelector("#routes-time-chart");
+const appBrand = document.querySelector(".brand");
+
+if (appBrand instanceof HTMLAnchorElement) {
+  appBrand.removeAttribute("href");
+  appBrand.removeAttribute("aria-label");
+  appBrand.style.cursor = "default";
+}
 
 const settingsLayoutStyle = document.createElement("style");
 settingsLayoutStyle.textContent = `
