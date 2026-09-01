@@ -82,6 +82,7 @@ stationActionStyle.textContent = `
 document.head.append(stationActionStyle);
 
 let activeStationEdit = null;
+let highlightRenderTimer = null;
 
 function checkedStations(picker) {
   return picker.querySelectorAll('.station-checklist input[type="checkbox"]:checked');
@@ -244,6 +245,23 @@ function syncHighlightButtons(station, highlighted) {
   }
 }
 
+function scheduleHighlightRender() {
+  if (highlightRenderTimer !== null) {
+    clearTimeout(highlightRenderTimer);
+    highlightRenderTimer = null;
+  }
+  requestAnimationFrame(() => {
+    highlightRenderTimer = window.setTimeout(() => {
+      highlightRenderTimer = null;
+      if (app.state.settingsDirty || app.state.refreshInFlight) {
+        app.renderRefreshNotice();
+      } else {
+        app.renderCurrentTab();
+      }
+    }, 0);
+  });
+}
+
 function toggleStationHighlight(star) {
   const station = star.dataset.highlightStation;
   if (!station) return;
@@ -257,11 +275,7 @@ function toggleStationHighlight(star) {
   app.state.highlights = Array.from(highlights).sort();
   app.saveSettings();
   syncHighlightButtons(station, highlighted);
-  if (app.state.settingsDirty || app.state.refreshInFlight) {
-    app.renderRefreshNotice();
-  } else {
-    app.renderCurrentTab();
-  }
+  scheduleHighlightRender();
 }
 
 for (const picker of stationPickers) installStationAction(picker);
@@ -273,6 +287,13 @@ if (routeSummary) {
     subtree: true,
   });
 }
+
+document.addEventListener('input', (event) => {
+  const filter = event.target.closest?.('.station-filter[data-role]');
+  if (!filter) return;
+  const role = filter.dataset.role;
+  requestAnimationFrame(() => updateRoleSummary(role));
+}, true);
 
 document.addEventListener('change', (event) => {
   const input = event.target;
