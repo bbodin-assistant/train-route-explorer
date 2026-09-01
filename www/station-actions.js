@@ -1,4 +1,4 @@
-import { app } from "./app.js";
+import { app } from "./app.js?v=0.16";
 
 const stationPickers = Array.from(document.querySelectorAll('.station-picker[data-role]'));
 const routeSummary = document.querySelector('.route-summary');
