@@ -36,22 +36,43 @@ settingsLayoutStyle.textContent = `
     color: #b42318 !important;
   }
 
+  .journey-detail-transfer-edge {
+    min-height: 30px !important;
+  }
+
+  .journey-detail-transfer-edge > span {
+    grid-column: 3 !important;
+    grid-row: 1 !important;
+    align-self: center;
+    justify-self: start;
+    padding: 0 !important;
+    color: #805d11 !important;
+    font-size: 11px !important;
+    font-weight: 850 !important;
+  }
+
+  .journey-detail-transfer-edge > div {
+    display: none !important;
+  }
+
   .journey-detail-transfer-edge i {
-    width: 10px !important;
-    height: 10px !important;
-    margin-top: 3px !important;
-    border: 2px solid #a16207 !important;
-    border-radius: 50% !important;
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+    width: 2px !important;
+    height: 20px !important;
+    margin-top: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
     background: #a16207 !important;
-    box-shadow: 0 0 0 2px #fff8df;
+    box-shadow: none !important;
   }
 
   .journey-detail-transfer-edge i::after {
-    top: 8px !important;
+    top: 20px !important;
     width: 2px !important;
     height: var(--journey-connector-height, 24px) !important;
     border: 0 !important;
-    background: var(--journey-line-color, #2563eb) !important;
+    background: #a16207 !important;
   }
 
   .transfer-time-group {
