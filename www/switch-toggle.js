@@ -1,5 +1,6 @@
 const timeline = document.querySelector("#routes-time-chart");
 const directionTabs = document.querySelector("#route-direction-tabs");
+const detailFrame = document.querySelector("#train-detail-frame");
 
 const switchToggleStyle = document.createElement("style");
 switchToggleStyle.textContent = `
@@ -7,7 +8,20 @@ switchToggleStyle.textContent = `
     padding-top: 6px !important;
   }
 
+  #train-detail-frame:not(.journey-detail-frame) .detail-stop:not(.context) i {
+    border-color: var(--detail-train-color, #2563eb);
+  }
+
+  #train-detail-frame:not(.journey-detail-frame) .detail-stop:not(.context) i::after {
+    background: var(--detail-train-color, #2563eb);
+  }
+
   @media (max-width: 900px) {
+    .route-settings-menu summary::after {
+      content: none !important;
+      display: none !important;
+    }
+
     main {
       height: calc(100vh - var(--header-height));
       height: calc(100dvh - var(--header-height));
@@ -95,7 +109,15 @@ function installDirectionToggle() {
   }, true);
 }
 
+function syncClickedTrainColor(event) {
+  const bar = event.target.closest(".timeline-bar.train");
+  if (!bar || !detailFrame) return;
+  const color = bar.style.getPropertyValue("--train-color").trim();
+  if (color) detailFrame.style.setProperty("--detail-train-color", color);
+}
+
 if (timeline) {
+  timeline.addEventListener("click", syncClickedTrainColor, true);
   new MutationObserver(installDirectionToggle).observe(timeline, {
     childList: true,
     subtree: true,
