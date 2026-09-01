@@ -72,12 +72,15 @@ class StationFilterRegressionTest(unittest.TestCase):
         if not GTFS_FIXTURE_PATH or not os.path.isfile(fixture):
             raise AssertionError(f"GTFS fixture does not exist: {fixture!r}")
 
+        # Opening the native <details> element is setup, not the behavior under
+        # test. Avoid coupling the station-filter regression test to whether a
+        # headless browser considers the summary hit-testable. The actual file
+        # input, Load button, browser File object, worker parsing and ready state
+        # are still exercised normally.
         data_menu = cls.driver.find_element(By.CSS_SELECTOR, ".data-menu")
-        summary = cls.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".data-menu > summary")))
-        if not data_menu.get_attribute("open"):
-            summary.click()
-
+        cls.driver.execute_script("arguments[0].open = true;", data_menu)
         cls.wait.until(lambda driver: driver.find_element(By.CSS_SELECTOR, ".data-menu").get_attribute("open"))
+
         upload = cls.wait.until(EC.presence_of_element_located((By.ID, "gtfs-upload")))
         upload.send_keys(fixture)
         cls.wait.until(EC.element_to_be_clickable((By.ID, "load-upload"))).click()
@@ -103,8 +106,9 @@ class StationFilterRegressionTest(unittest.TestCase):
                 f"status={status!r}, classes={classes!r}"
             ) from exc
 
-        if cls.driver.find_element(By.CSS_SELECTOR, ".data-menu").get_attribute("open"):
-            cls.driver.find_element(By.CSS_SELECTOR, ".data-menu > summary").click()
+        cls.driver.execute_script(
+            "document.querySelector('.data-menu').open = false;"
+        )
 
     def _open_route_selector(self, role):
         button_selector = f"[data-route-role='{role}']"
