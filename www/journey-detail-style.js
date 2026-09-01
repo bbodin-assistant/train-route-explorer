@@ -26,47 +26,48 @@ journeyDetailStyle.textContent = `
     color: #8a9298 !important;
   }
 
+  /* A transfer is an edge between two station nodes, not another station row.
+     Keep it out of normal flow so interchange nodes use the same vertical
+     spacing as every other adjacent pair of stations. */
   .journey-detail-transfer-edge {
-    min-height: 43px !important;
-    position: relative;
+    display: block !important;
+    position: relative !important;
+    min-height: 0 !important;
+    height: 0 !important;
+    overflow: visible !important;
+    color: #805d11;
+    pointer-events: none;
   }
 
   .journey-detail-transfer-edge > span {
-    grid-column: 3 !important;
-    grid-row: 1 !important;
-    align-self: center !important;
-    justify-self: start !important;
-    padding: 0 !important;
+    position: absolute !important;
+    left: 126px !important;
+    top: var(--journey-transfer-label-top, -28px) !important;
+    z-index: 2;
+    padding: 1px 4px !important;
+    border-radius: 2px;
+    background: #fffef9;
     color: #805d11 !important;
     font-size: 11px !important;
     font-weight: 850 !important;
+    line-height: 1.2;
+    white-space: nowrap;
   }
 
-  .journey-detail-transfer-edge > div {
-    display: none !important;
-  }
-
-  .journey-detail-transfer-edge i {
-    grid-column: 2 !important;
-    grid-row: 1 !important;
-    align-self: start !important;
-    justify-self: center !important;
-    width: 2px !important;
-    height: 2px;
-    margin: 0 !important;
-    border: 0 !important;
-    border-radius: 0 !important;
-    background: #a16207 !important;
-    box-shadow: none !important;
-    transform-origin: top center;
-  }
-
+  .journey-detail-transfer-edge > div,
+  .journey-detail-transfer-edge i,
   .journey-detail-transfer-edge i::after {
     display: none !important;
   }
 
+  /* The station immediately before a transfer owns the brown connector.
+     A separate custom property protects this geometry from the generic
+     connector-height pass in row-details.js. */
   .journey-detail-stop.journey-detail-before-transfer i::after {
-    display: none !important;
+    display: block !important;
+    width: 2px !important;
+    height: var(--journey-transfer-height, 38px) !important;
+    background: #a16207 !important;
   }
 `;
 document.head.append(journeyDetailStyle);
@@ -77,6 +78,7 @@ function markStationEmphasis(rows) {
   const stationRows = rows.filter((row) => row.classList.contains("journey-detail-stop"));
   for (const row of stationRows) {
     row.classList.remove("journey-detail-key-station", "journey-detail-intermediate", "journey-detail-before-transfer");
+    row.style.removeProperty("--journey-transfer-height");
   }
 
   stationRows[0]?.classList.add("journey-detail-key-station");
@@ -101,27 +103,32 @@ function markStationEmphasis(rows) {
   }
 }
 
-function stretchTransferEdges(rows) {
+function syncTransferGeometry(rows) {
   for (const row of rows) {
     if (!row.classList.contains("journey-detail-transfer-edge")) continue;
-    const line = row.querySelector("i");
-    const previousMarker = row.previousElementSibling?.querySelector("i");
-    const nextMarker = row.nextElementSibling?.querySelector("i");
-    if (!line || !previousMarker || !nextMarker) continue;
+    const before = row.previousElementSibling;
+    const after = row.nextElementSibling;
+    const previousMarker = before?.querySelector("i");
+    const nextMarker = after?.querySelector("i");
+    const label = row.querySelector(":scope > span");
+    if (!before || !previousMarker || !nextMarker) continue;
 
-    line.style.height = "2px";
-    line.style.transform = "none";
-
-    const base = line.getBoundingClientRect();
     const previous = previousMarker.getBoundingClientRect();
     const next = nextMarker.getBoundingClientRect();
-    const previousCenter = previous.top + previous.height / 2;
+    const transfer = row.getBoundingClientRect();
+    const previousConnectorStart = previous.top + 10;
     const nextCenter = next.top + next.height / 2;
-    const height = Math.max(2, nextCenter - previousCenter);
-    const offset = previousCenter - base.top;
+    const connectorHeight = Math.max(2, nextCenter - previousConnectorStart);
+    before.style.setProperty("--journey-transfer-height", `${connectorHeight}px`);
 
-    line.style.height = `${height}px`;
-    line.style.transform = `translateY(${offset}px)`;
+    if (label) {
+      const labelHeight = label.getBoundingClientRect().height || 13;
+      const midpoint = (previous.top + previous.height / 2 + nextCenter) / 2;
+      row.style.setProperty(
+        "--journey-transfer-label-top",
+        `${midpoint - transfer.top - labelHeight / 2}px`,
+      );
+    }
   }
 }
 
@@ -131,7 +138,7 @@ function syncJourneyDetailGraph() {
   const rows = Array.from(detailFrame.querySelectorAll(".journey-detail-stop, .journey-detail-transfer-edge"));
   if (!rows.length) return;
   markStationEmphasis(rows);
-  stretchTransferEdges(rows);
+  syncTransferGeometry(rows);
 }
 
 function scheduleSync() {
@@ -144,5 +151,8 @@ if (detailFrame) {
     childList: true,
     subtree: true,
   });
+  if (typeof ResizeObserver === "function") {
+    new ResizeObserver(scheduleSync).observe(detailFrame);
+  }
   window.addEventListener("resize", scheduleSync);
 }
