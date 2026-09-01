@@ -35,6 +35,14 @@ switchToggleStyle.textContent = `
     .timeline-empty {
       min-height: 100%;
     }
+
+    .timeline-load-more {
+      position: sticky;
+      left: 0;
+      width: calc(100vw - 16px);
+      min-width: 0;
+      justify-content: center;
+    }
   }
 `;
 document.head.append(switchToggleStyle);
