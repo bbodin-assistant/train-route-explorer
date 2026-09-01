@@ -36,10 +36,9 @@ class StationFilterRegressionTest(unittest.TestCase):
         cls.driver.get(TEST_URL)
 
         cls.wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, ".route-settings-menu > summary"))
+            EC.presence_of_element_located((By.CSS_SELECTOR, "[data-route-role='local_origins']"))
         )
         cls._ensure_gtfs_loaded()
-        cls._open_route_settings()
 
     @classmethod
     def tearDownClass(cls):
@@ -56,9 +55,6 @@ class StationFilterRegressionTest(unittest.TestCase):
                 return True
             return False
 
-        # On a clean browser profile there is no saved archive, so explicitly
-        # load the bundled GTFS. If startup is still checking storage, wait for
-        # the button to become usable first.
         bundled = cls.wait.until(EC.presence_of_element_located((By.ID, "load-bundled")))
         cls.wait.until(lambda driver: bundled.is_enabled())
         if not cls.driver.find_elements(By.CSS_SELECTOR, "#config-local-origins input[type='checkbox']"):
@@ -70,21 +66,19 @@ class StationFilterRegressionTest(unittest.TestCase):
             status = cls.driver.find_element(By.ID, "cache-status-text").text
             raise AssertionError(f"Timed out waiting for GTFS station data; status={status!r}") from exc
 
-    @classmethod
-    def _open_route_settings(cls):
-        menu = cls.driver.find_element(By.CSS_SELECTOR, ".route-settings-menu")
-        if not menu.get_attribute("open"):
-            cls.driver.find_element(By.CSS_SELECTOR, ".route-settings-menu > summary").click()
-        cls.wait.until(
-            EC.visibility_of_element_located(
-                (By.CSS_SELECTOR, ".route-settings-panel .station-filter[data-role='local_origins']")
-            )
-        )
+    def _open_route_selector(self, role):
+        button_selector = f"[data-route-role='{role}']"
+        panel_selector = f".route-summary-item[data-route-item='{role}'] .route-selector-panel"
+        button = self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, button_selector)))
+        panel = self.driver.find_element(By.CSS_SELECTOR, panel_selector)
+        if not panel.is_displayed():
+            button.click()
+        self.wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, panel_selector)))
+        return self.driver.find_element(By.CSS_SELECTOR, panel_selector)
 
     def _filter_for_paris(self, role):
-        filter_input = self.driver.find_element(
-            By.CSS_SELECTOR, f".station-filter[data-role='{role}']"
-        )
+        panel = self._open_route_selector(role)
+        filter_input = panel.find_element(By.CSS_SELECTOR, f".station-filter[data-role='{role}']")
         filter_input.clear()
         filter_input.send_keys("Paris")
 
@@ -117,8 +111,8 @@ class StationFilterRegressionTest(unittest.TestCase):
                 self._filter_for_paris(role)
 
         # Departure defaults to Saujon/Saintes, so a Paris result is expected to
-        # be unselected. Click one real filtered result and verify the app keeps
-        # it selected after its normal station-picker rerender.
+        # be unselected. Select a real filtered result, then use the same Apply
+        # button as the user-facing inline station selector.
         rows = self._filter_for_paris("local_origins")
         target_label = None
         for row in rows:
@@ -138,10 +132,29 @@ class StationFilterRegressionTest(unittest.TestCase):
             return False
 
         self.wait.until(selected_after_rerender)
+
+        apply_button = self.wait.until(
+            EC.element_to_be_clickable(
+                (
+                    By.CSS_SELECTOR,
+                    ".route-summary-item[data-route-item='local_origins'] .route-selector-apply",
+                )
+            )
+        )
+        apply_button.click()
+
+        self.wait.until(
+            EC.invisibility_of_element_located(
+                (
+                    By.CSS_SELECTOR,
+                    ".route-summary-item[data-route-item='local_origins'] .route-selector-panel",
+                )
+            )
+        )
         self.assertIn(
             target_label,
             self.driver.find_element(By.CSS_SELECTOR, "[data-route-value='local_origins']").text,
-            "Selected Paris station should appear in the Departure route summary",
+            "Selected Paris station should appear in the Departure route summary after Apply",
         )
 
 
