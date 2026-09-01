@@ -16,6 +16,14 @@ settingsLayoutStyle.textContent = `
     border-top: 0 !important;
   }
 
+  .timeline-label-duration[data-duration-band="middle"] {
+    color: #9a6700 !important;
+  }
+
+  .timeline-label-duration[data-duration-band="bad"] {
+    color: #b42318 !important;
+  }
+
   .transfer-time-group {
     grid-column: 1 / -1;
     min-width: 0;
