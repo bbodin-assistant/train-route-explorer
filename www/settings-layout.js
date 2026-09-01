@@ -1,0 +1,107 @@
+const trainTypeFilter = document.querySelector("#train-type-filter");
+const minTransfer = document.querySelector("#config-min-transfer");
+const maxTransfer = document.querySelector("#config-max-transfer");
+
+const settingsLayoutStyle = document.createElement("style");
+settingsLayoutStyle.textContent = `
+  .transfer-time-group {
+    grid-column: 1 / -1;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .transfer-time-group > legend {
+    margin: 0 0 6px;
+    padding: 0;
+    color: #525d66;
+    font-size: 11px;
+    font-weight: 800;
+  }
+
+  .transfer-time-range {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .transfer-time-range > label {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    padding: 8px;
+    border: 1px solid #d5dad7;
+    border-radius: 5px;
+    background: #fff;
+  }
+
+  .transfer-time-caption {
+    color: #737d84;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+  }
+
+  .transfer-time-range .input-with-unit {
+    grid-template-columns: minmax(0, 1fr) 28px;
+  }
+
+  .transfer-time-range .input-unit {
+    text-align: left;
+  }
+
+  @media (max-width: 420px) {
+    .transfer-time-range {
+      gap: 6px;
+    }
+
+    .transfer-time-range > label {
+      padding: 7px;
+    }
+  }
+`;
+document.head.append(settingsLayoutStyle);
+
+function compactTransferLabel(label, caption) {
+  if (!label) return;
+  const control = label.querySelector(".input-with-unit");
+  if (!control) return;
+
+  const unit = control.querySelector(".input-unit");
+  if (unit) unit.textContent = "min";
+
+  const captionElement = document.createElement("span");
+  captionElement.className = "transfer-time-caption";
+  captionElement.textContent = caption;
+
+  label.replaceChildren(captionElement, control);
+}
+
+function groupTransferTimes() {
+  const minLabel = minTransfer?.closest("label");
+  const maxLabel = maxTransfer?.closest("label");
+  if (!minLabel || !maxLabel || minLabel.closest(".transfer-time-group")) return;
+
+  const group = document.createElement("fieldset");
+  group.className = "transfer-time-group";
+
+  const legend = document.createElement("legend");
+  legend.textContent = "Transfer time";
+
+  const range = document.createElement("div");
+  range.className = "transfer-time-range";
+
+  minLabel.before(group);
+  group.append(legend, range);
+  range.append(minLabel, maxLabel);
+
+  compactTransferLabel(minLabel, "Min");
+  compactTransferLabel(maxLabel, "Max");
+}
+
+// Train types are a short fixed list; filtering adds UI cost without enough value.
+// Keep the existing element reference alive for older app code, but remove the
+// search control from the visible Settings UI.
+trainTypeFilter?.remove();
+groupTransferTimes();
