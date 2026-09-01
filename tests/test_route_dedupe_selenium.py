@@ -93,10 +93,15 @@ class RouteDedupeRegressionTest(unittest.TestCase):
               from: 'Poitiers', to: 'Massy TGV', departure: 660, arrival: 709,
               path: [['Poitiers', 660], ['Massy TGV', 709]],
             });
-            const ouigo = makeLeg({
+            const ouigoDirect = makeLeg({
               tripId: 'ouigo-a', type: 'OUIGO Grande Vitesse', number: '7669',
               from: 'Angoulême', to: 'Massy TGV', departure: 620, arrival: 709,
               path: [['Angoulême', 620], ['Poitiers', 650], ['Massy TGV', 709]],
+            });
+            const ouigoToPoitiers = makeLeg({
+              tripId: 'ouigo-b', type: 'OUIGO Grande Vitesse', number: '7652',
+              from: 'Angoulême', to: 'Poitiers', departure: 612, arrival: 650,
+              path: [['Angoulême', 612], ['Poitiers', 650]],
             });
 
             const preferred = makeRow('preferred-route', [ter, inouiDirect]);
@@ -106,37 +111,56 @@ class RouteDedupeRegressionTest(unittest.TestCase):
             timeline.replaceChildren(
               preferred,
               makeRow('extra-transfer-route', [ter, inouiToPoitiers, inouiFromPoitiers]),
+              makeRow('cross-brand-extra-route', [ter, ouigoToPoitiers, inouiFromPoitiers]),
               sameService,
-              makeRow('different-brand-route', [ter, ouigo]),
+              makeRow('different-brand-route', [ter, ouigoDirect]),
             );
             """
         )
 
-        self.wait.until(
-            lambda driver: "route-duplicate-invalid" in driver.find_element(
-                By.ID, "extra-transfer-route"
-            ).get_attribute("class").split()
-        )
-        self.wait.until(
-            lambda driver: "route-duplicate-invalid" in driver.find_element(
-                By.ID, "same-service-route"
-            ).get_attribute("class").split()
-        )
+        for row_id in ["extra-transfer-route", "cross-brand-extra-route", "same-service-route"]:
+            self.wait.until(
+                lambda driver, target=row_id: "route-duplicate-invalid" in driver.find_element(
+                    By.ID, target
+                ).get_attribute("class").split()
+            )
 
         preferred = self.driver.find_element(By.ID, "preferred-route")
         extra_transfer = self.driver.find_element(By.ID, "extra-transfer-route")
+        cross_brand_extra = self.driver.find_element(By.ID, "cross-brand-extra-route")
         same_service = self.driver.find_element(By.ID, "same-service-route")
         different_brand = self.driver.find_element(By.ID, "different-brand-route")
 
         self.assertEqual(extra_transfer.get_attribute("data-route-duplicate-reason"), "extra-transfer")
+        self.assertEqual(cross_brand_extra.get_attribute("data-route-duplicate-reason"), "extra-transfer")
         self.assertEqual(same_service.get_attribute("data-route-duplicate-reason"), "same-service")
         self.assertNotIn("route-duplicate-invalid", preferred.get_attribute("class"))
         self.assertNotIn("route-duplicate-invalid", different_brand.get_attribute("class"))
 
         self.assertEqual(extra_transfer.value_of_css_property("display"), "none")
+        self.assertEqual(cross_brand_extra.value_of_css_property("display"), "none")
         self.assertEqual(same_service.value_of_css_property("display"), "none")
         self.assertNotEqual(preferred.value_of_css_property("display"), "none")
         self.assertNotEqual(different_brand.value_of_css_property("display"), "none")
+
+        # Via "only" can make all simpler alternatives unavailable. Hidden
+        # routes must not dominate a valid route with more changes.
+        self.driver.execute_script(
+            """
+            document.querySelector('#preferred-route').hidden = true;
+            document.querySelector('#same-service-route').hidden = true;
+            document.querySelector('#different-brand-route').hidden = true;
+            """
+        )
+        self.wait.until(
+            lambda driver: "route-duplicate-invalid" not in driver.find_element(
+                By.ID, "cross-brand-extra-route"
+            ).get_attribute("class").split()
+        )
+        self.assertNotEqual(
+            self.driver.find_element(By.ID, "cross-brand-extra-route").value_of_css_property("display"),
+            "none",
+        )
 
 
 if __name__ == "__main__":
