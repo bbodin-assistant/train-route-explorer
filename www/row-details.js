@@ -74,7 +74,7 @@ rowInteractionStyle.textContent = `
   }
 
   .journey-detail-stop i::after {
-    height: 38px !important;
+    height: var(--journey-connector-height, 38px) !important;
     background: var(--journey-line-color, #2563eb) !important;
   }
 
@@ -116,6 +116,7 @@ rowInteractionStyle.textContent = `
 document.head.append(rowInteractionStyle);
 
 let activeRow = null;
+let detailResizeObserver = null;
 
 function decodeLeg(bar) {
   if (!bar?.dataset.detail) return null;
@@ -170,7 +171,7 @@ function stopListForLeg(leg) {
   }
 
   if (!stops[0].departure_time) stops[0].departure_time = leg.departure_time;
-  if (!stops.at(-1).arrival_time) stops.at(-1).arrival_time = leg.arrival_time;
+  if (!stops.at(-1).arrival_time) stops.at(-1].arrival_time = leg.arrival_time;
   return stops;
 }
 
@@ -265,6 +266,21 @@ function journeyStopsHtml(nodes) {
   `).join("");
 }
 
+function syncJourneyConnectorHeights() {
+  if (!detailFrame?.classList.contains("journey-detail-frame")) return;
+  const stops = Array.from(detailFrame.querySelectorAll(".journey-detail-stop"));
+  stops.forEach((stop, index) => {
+    const marker = stop.querySelector("i");
+    const nextMarker = stops[index + 1]?.querySelector("i");
+    if (!marker || !nextMarker) return;
+    const markerRect = marker.getBoundingClientRect();
+    const nextRect = nextMarker.getBoundingClientRect();
+    const connectorStart = markerRect.top + 10;
+    const connectorEnd = nextRect.top + (nextRect.height / 2);
+    stop.style.setProperty("--journey-connector-height", `${Math.max(0, connectorEnd - connectorStart)}px`);
+  });
+}
+
 function clearJourneySelection() {
   if (activeRow) {
     activeRow.classList.remove("is-journey-open");
@@ -272,6 +288,8 @@ function clearJourneySelection() {
   }
   activeRow = null;
   detailFrame?.classList.remove("journey-detail-frame");
+  detailResizeObserver?.disconnect();
+  detailResizeObserver = null;
 }
 
 function positionJourneyFrame(row) {
@@ -322,6 +340,13 @@ function showJourneyGraph(row) {
   detailFrame.hidden = false;
   detailLayer.hidden = false;
   positionJourneyFrame(row);
+  requestAnimationFrame(syncJourneyConnectorHeights);
+
+  detailResizeObserver?.disconnect();
+  if (typeof ResizeObserver === "function") {
+    detailResizeObserver = new ResizeObserver(() => requestAnimationFrame(syncJourneyConnectorHeights));
+    detailResizeObserver.observe(detailFrame);
+  }
 }
 
 function makeRowsInteractive() {
