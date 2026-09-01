@@ -1,4 +1,5 @@
 import init, { build_context, routes_for_day } from "./pkg/train_route_explorer.js";
+import { routeConfigSummary, routeDebug } from "./route-debug.js";
 
 const CACHE_DB = "train-route-explorer";
 const DB_VERSION = 2;
@@ -6,6 +7,7 @@ const CONTEXT_STORE = "contexts";
 const SOURCE_STORE = "sources";
 const LAST_SOURCE_KEY = "__last_source__";
 const CACHE_VERSION = "gtfs-context-v4";
+const ROUTE_PROTOCOL_VERSION = 3;
 
 let wasmReady = false;
 let archiveBytes = null;
@@ -14,6 +16,8 @@ let activeContext = null;
 let activeConfig = null;
 let routeShortNamesArchive = null;
 let routeShortNames = new Map();
+
+routeDebug("worker", "worker module loaded", { protocolVersion: ROUTE_PROTOCOL_VERSION });
 
 async function ensureWasm() {
   if (!wasmReady) {
@@ -319,6 +323,8 @@ async function buildOrLoadContext(config) {
     throw new Error("Load a GTFS archive first.");
   }
 
+  const startedAt = performance.now();
+  routeDebug("worker", "context load started", { config: routeConfigSummary(config) });
   await ensureRouteShortNames();
 
   const key = await cacheKey(archiveBytes, sourceMeta, config);
@@ -329,6 +335,10 @@ async function buildOrLoadContext(config) {
     activeConfig = config;
     sourceMeta = await storeSource(archiveBytes, sourceMeta);
     post("ready", { context: activeContext, cached: true, source: sourceMeta });
+    routeDebug("worker", "context cache hit", {
+      elapsedMs: Math.round(performance.now() - startedAt),
+      availableDayCount: activeContext.available_days?.length || 0,
+    });
     return;
   }
 
@@ -339,21 +349,57 @@ async function buildOrLoadContext(config) {
   await storeSet(CONTEXT_STORE, key, activeContext);
   sourceMeta = await storeSource(archiveBytes, sourceMeta);
   post("ready", { context: activeContext, cached: false, source: sourceMeta });
+  routeDebug("worker", "context build completed", {
+    elapsedMs: Math.round(performance.now() - startedAt),
+    availableDayCount: activeContext.available_days?.length || 0,
+  });
 }
 
-function computeRoutes(day, overrides = {}) {
+async function computeRoutes(days, overrides = {}, onProgress = null, selectedDay = null) {
   if (!activeContext || !activeConfig) {
     throw new Error("Route context is not ready.");
   }
   const config = { ...activeConfig, ...overrides };
-  const request = {
-    selected_day: day || null,
-    min_transfer_minutes: config.min_transfer_minutes,
-    max_transfer_minutes: config.max_transfer_minutes,
-    max_transfer_count: config.max_transfer_count,
-    max_journey_duration_minutes: config.max_journey_duration_minutes,
+  const requestedDays = (Array.isArray(days) ? days : [days]).filter(Boolean);
+  routeDebug("worker", "multi-day routing started", {
+    days: requestedDays,
+    config: routeConfigSummary(config),
+  });
+  const result = {
+    selected_day: selectedDay || requestedDays[0] || null,
+    days: requestedDays,
+    outward: [],
+    returns: [],
   };
-  return applyPublicTrainCodes(routes_for_day(activeContext, request));
+  for (const [index, day] of requestedDays.entries()) {
+    const dayStartedAt = performance.now();
+    routeDebug("worker", "service day routing started", { day, index: index + 1, total: requestedDays.length });
+    const dayResult = applyPublicTrainCodes(routes_for_day(activeContext, {
+      selected_day: day,
+      min_transfer_minutes: config.min_transfer_minutes,
+      max_transfer_minutes: config.max_transfer_minutes,
+      max_transfer_count: config.max_transfer_count,
+      max_journey_duration_minutes: config.max_journey_duration_minutes,
+    }));
+    result.outward.push(...(dayResult.outward || []));
+    result.returns.push(...(dayResult.returns || []));
+    routeDebug("worker", "service day routing completed", {
+      day,
+      elapsedMs: Math.round(performance.now() - dayStartedAt),
+      outwardCount: dayResult.outward?.length || 0,
+      returnCount: dayResult.returns?.length || 0,
+    });
+    if (onProgress && index + 1 < requestedDays.length) {
+      onProgress(result, index + 1, requestedDays.length);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
+  routeDebug("worker", "multi-day routing completed", {
+    days: requestedDays,
+    outwardCount: result.outward.length,
+    returnCount: result.returns.length,
+  });
+  return result;
 }
 
 self.onmessage = async (event) => {
@@ -404,8 +450,24 @@ self.onmessage = async (event) => {
       return;
     }
     if (type === "routes") {
-      const result = computeRoutes(event.data.day, event.data.overrides || {});
-      post("routes", { result });
+      if (event.data.protocolVersion !== ROUTE_PROTOCOL_VERSION) {
+        throw new Error(
+          `Route protocol mismatch: app=${event.data.protocolVersion ?? "missing"}, worker=${ROUTE_PROTOCOL_VERSION}`,
+        );
+      }
+      const requestId = event.data.requestId;
+      const result = await computeRoutes(
+        event.data.days || event.data.day,
+        event.data.overrides || {},
+        (partialResult, completedDays, totalDays) => post("routes-progress", {
+          requestId,
+          result: partialResult,
+          completedDays,
+          totalDays,
+        }),
+        event.data.selectedDay,
+      );
+      post("routes", { requestId, result });
       return;
     }
   } catch (error) {

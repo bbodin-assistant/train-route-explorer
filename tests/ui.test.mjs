@@ -151,23 +151,45 @@ async function main() {
     await page.send("Runtime.enable");
     await page.send("Page.enable");
     await page.send("Page.navigate", { url: TEST_URL });
-    await page.eval(`
-      new Promise((resolve) => {
-        if (document.readyState === "complete") resolve(true);
-        window.addEventListener("load", () => resolve(true), { once: true });
-      })
-    `, true);
+    await waitFor(async () => page.eval(`document.readyState === "complete" && document.querySelector(".brand strong")?.textContent === "Train Route Explorer"`), {
+      timeoutMs: 15_000,
+      message: "application page to load",
+    });
 
-    assert(await page.eval(`document.querySelector("h1")?.textContent`) === "Train Route Explorer", "Page header should render");
+    assert(await page.eval(`document.querySelector(".brand strong")?.textContent`) === "Train Route Explorer", "Page header should render");
     assert(await page.eval(`document.querySelector("#config-apply") === null`), "Old apply route settings button should not render");
-    assert(await page.eval(`document.querySelector(".time-config-panel > :first-child #day-calendar")?.id === "day-calendar"`), "Day selector should be first in the time settings panel");
+    assert(await page.eval(`document.querySelector(".day-control #day-calendar")?.id === "day-calendar"`), "Day selector should render in the day controls");
+    assert(await page.eval(`document.querySelector("#previous-day-button")?.getAttribute("aria-label")`) === "Previous service day", "Previous-day arrow should render beside the day selector");
     assert(await page.eval(`document.querySelector("#today-button")?.textContent`) === "Today", "Today button should render beside the day selector");
+    assert(await page.eval(`document.querySelector("#next-day-button")?.getAttribute("aria-label")`) === "Next service day", "Next-day arrow should render beside Today");
     assert(await page.eval(`Array.from(document.querySelectorAll(".input-unit")).map((node) => node.textContent).join(",")`) === "minutes,minutes,transfers,minutes", "Every numeric time setting should show its unit");
+    assert(await page.eval(`Array.from(document.querySelectorAll(".time-config-panel > label")).map((label) => label.firstChild.textContent.trim()).join("|")`) === "Minimum transfer time|Maximum transfer time|Maximum transfers|Maximum journey duration", "Time setting labels should use explicit duration terminology");
     assert(await page.eval(`Array.from(document.querySelectorAll(".input-with-unit input")).every((input) => input.getBoundingClientRect().width <= 100)`) === true, "Numeric settings should use compact text boxes");
     assert(await page.eval(`document.querySelector('[data-role="local_origins"] legend')?.textContent`) === "Departure stations", "Departure station list should use departure terminology");
     assert(await page.eval(`document.querySelector('[data-role="side_b_destinations"] legend')?.textContent`) === "Arrival stations", "Arrival station list should use arrival terminology");
     assert(await page.eval(`Array.from(document.querySelectorAll("#route-direction-tabs button")).map((button) => button.textContent).join("|")`) === "Departure → Arrival|Arrival → Departure", "Direction tabs should use departure and arrival terminology");
     assert(await page.eval(`document.querySelector("#highlight-stations") === null`), "Separate Highlights panel should not render");
+
+    if (process.env.SORTING_ONLY === "1") {
+      await page.eval(`(() => {
+        const row = (id, time, duration) => '<div class="timeline-row" data-test-id="' + id + '"><span class="timeline-label-time">' + time + '</span><span class="timeline-label-duration">(' + duration + 'm)</span></div>';
+        document.querySelector("#routes-time-chart").innerHTML =
+          '<div class="timeline-scale"><span style="left:0%">06:00</span><span style="left:50%">08:00</span></div>' +
+          '<div class="timeline-grid-lines"><span style="left:0%"></span><span style="left:50%"></span></div>' +
+          '<section class="timeline-day-group">' + row("a", "09:00", 90) + row("b", "07:00", 120) + '</section>' +
+          '<section class="timeline-day-group">' + row("c", "10:00", 30) + row("d", "08:00", 75) + '</section>';
+      })()`);
+      await waitFor(async () => page.eval(`Boolean(document.querySelector('[data-timeline-sort="time"]'))`), { message: "sort controls" });
+      const order = () => page.eval(`Array.from(document.querySelectorAll(".timeline-day-group"), (group) => Array.from(group.querySelectorAll(":scope > .timeline-row"), (row) => row.dataset.testId).join("")).join("|")`);
+      await page.eval(`document.querySelector('[data-timeline-sort="time"]').click()`);
+      assert(await order() === "ba|dc", "Time ascending should sort every day independently");
+      await page.eval(`document.querySelector('[data-timeline-sort="time"]').click()`);
+      assert(await order() === "ab|cd", "Time descending should sort every day independently");
+      await page.eval(`document.querySelector('[data-timeline-sort="duration"]').click()`);
+      assert(await order() === "ab|cd", "Duration ascending should sort every day independently");
+      console.log("Grouped timeline sorting browser test passed");
+      return;
+    }
 
     await page.eval(`document.querySelector("#load-bundled").click()`);
     await waitFor(async () => {
@@ -225,7 +247,65 @@ async function main() {
     assert(timelineGuides.lines.length === timelineGuides.labels.length, "Each timeline label should have a vertical guide");
     assert(timelineGuides.lines.every((left, index) => Math.abs(left - timelineGuides.labels[index]) < 1), "Timeline guides should align with their time labels");
     assert(await page.eval(`document.querySelector("#routes-time-chart > h3") === null`), "Timeline should not render a route/date title");
+    assert(await page.eval(`document.querySelectorAll(".timeline-day-group").length`) === 1, "Timeline should initially include only the selected day");
+    const stickyTimelineHeaders = await page.eval(`(() => {
+      const scale = document.querySelector(".timeline-scale");
+      const heading = document.querySelector(".timeline-day-heading");
+      const scaleStyle = getComputedStyle(scale);
+      const headingStyle = getComputedStyle(heading);
+      return {
+        extraBannerExists: Boolean(document.querySelector("#timeline-current-day-banner")),
+        scalePosition: scaleStyle.position,
+        scaleTop: Number.parseFloat(scaleStyle.top),
+        scaleHeight: scale.getBoundingClientRect().height,
+        headingPosition: headingStyle.position,
+        headingTop: Number.parseFloat(headingStyle.top)
+      };
+    })()`);
+    assert(!stickyTimelineHeaders.extraBannerExists, "Timeline should not render a duplicate day banner");
+    assert(stickyTimelineHeaders.scalePosition === "sticky" && stickyTimelineHeaders.scaleTop === 0, "Time axis should stick to the top of the chart");
+    assert(stickyTimelineHeaders.headingPosition === "sticky" && stickyTimelineHeaders.headingTop >= stickyTimelineHeaders.scaleHeight, "Day heading should stick directly below the time axis");
+    assert(await page.eval(`document.querySelector("#timeline-load-more")?.textContent`) === "Load 3 more days", "Timeline should end with a load-more button");
+    await waitFor(async () => page.eval(`Boolean(document.querySelector('[data-timeline-sort="duration"]'))`), {
+      message: "timeline sort controls to render",
+    });
+    await page.eval(`document.querySelector('[data-timeline-sort="duration"]').click()`);
+    assert(await page.eval(`Array.from(document.querySelectorAll(".timeline-day-group")).every((group) => {
+      const values = Array.from(group.querySelectorAll(":scope > .timeline-row .timeline-label-duration")).map((label) => {
+        const match = label.textContent.match(/(?:(\\d+)h)?\\s*(\\d+)(?:m)?/i);
+        return match ? Number(match[1] || 0) * 60 + Number(match[2] || 0) : Number.POSITIVE_INFINITY;
+      });
+      return values.every((value, index) => index === 0 || values[index - 1] <= value);
+    })`), "Duration sorting should order rows within each day group");
+    await page.eval(`document.querySelector('[data-timeline-sort="time"]').click()`);
+    assert(await page.eval(`Array.from(document.querySelectorAll(".timeline-day-group")).every((group) => {
+      const values = Array.from(group.querySelectorAll(":scope > .timeline-row .timeline-label-time")).map((label) => {
+        const [hours, minutes] = label.textContent.trim().split(":").map(Number);
+        return hours * 60 + minutes;
+      });
+      return values.every((value, index) => index === 0 || values[index - 1] <= value);
+    })`), "Time sorting should order rows within each day group");
+    assert(await page.eval(`Array.from(document.querySelectorAll(".timeline-row")).every((row) => row.dataset.day === row.closest(".timeline-day-group")?.dataset.day)`), "Trip rows should be grouped under their service day");
     assert(await page.eval(`Array.from(document.querySelectorAll(".timeline-label")).every((label) => /\\(\\d+(?:h\\d{2}|m)\\)/.test(label.textContent))`), "Every timeline row should show its total journey duration");
+
+    const nextDayStart = await page.eval(`(() => {
+      const button = document.querySelector("#next-day-button");
+      const before = document.querySelector("#day-calendar").value;
+      if (!button.disabled) button.click();
+      return { before, clicked: !button.disabled };
+    })()`);
+    if (nextDayStart.clicked) {
+      const nextDayResult = await waitFor(async () => page.eval(`(() => {
+        const selected = document.querySelector("#day-calendar").value;
+        const firstGroup = document.querySelector(".timeline-day-group")?.dataset.day || "";
+        const loading = document.querySelector(".timeline-empty")?.textContent.includes("Loading");
+        return selected !== ${JSON.stringify(nextDayStart.before)} && !loading && firstGroup
+          ? { selected, firstGroup, previousDisabled: document.querySelector("#previous-day-button").disabled }
+          : null;
+      })()`), { timeoutMs: 120_000, message: "next service day routes to render" });
+      assert(nextDayResult.firstGroup === nextDayResult.selected.replaceAll("-", ""), "Next-day arrow should make the chosen service day the first group");
+      assert(!nextDayResult.previousDisabled, "Previous-day arrow should enable after moving forward");
+    }
 
     const unrestrictedTransfers = await page.eval(`(() => {
       let box = document.querySelector("#config-connection-stations input[type='checkbox']:checked");

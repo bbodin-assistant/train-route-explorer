@@ -1,3 +1,6 @@
+import { createTimeline } from "./timeline.js";
+import { routeConfigSummary, routeDebug } from "./route-debug.js";
+
 const DEFAULT_CONFIG = {
   local_origins: ["Saujon", "Saintes"],
   connection_stations: ["Bordeaux Saint-Jean", "Poitiers", "Angoulême"],
@@ -20,6 +23,8 @@ const DEFAULT_CONFIG = {
 const SERVER_GTFS_URL = "./data/gtfs.zip";
 const SETTINGS_STORAGE_KEY = "train-route-explorer-settings-v1";
 const AUTO_REFRESH_DELAY_MS = 300;
+const ROUTE_DAY_COUNT = 1;
+const ROUTE_PROTOCOL_VERSION = 3;
 const TRAIN_TYPE_COLORS = {
   "TGV INOUI": "#2563eb",
   "OUIGO Grande Vitesse": "#c026d3",
@@ -89,10 +94,13 @@ const state = {
   settingsDirty: false,
   refreshInFlight: false,
   routeRequestInFlight: false,
+  routeRequestId: 0,
+  routeRequestMode: "replace",
+  routeRequestBaseRoutes: null,
   refreshTimer: null,
 };
 
-const worker = new Worker("./worker.js", { type: "module" });
+const worker = new Worker(`./worker.js?route-protocol=${ROUTE_PROTOCOL_VERSION}`, { type: "module" });
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -114,7 +122,9 @@ const els = {
   maxTransferCount: $("#config-max-transfer-count"),
   maxDuration: $("#config-max-duration"),
   dayCalendar: $("#day-calendar"),
+  previousDayBtn: $("#previous-day-button"),
   todayBtn: $("#today-button"),
+  nextDayBtn: $("#next-day-button"),
   tabs: $("#route-direction-tabs"),
   timeline: $("#routes-time-chart"),
   detailLayer: $("#train-detail-dismiss-layer"),
@@ -186,14 +196,14 @@ function setStatus(message, progress = 0, tone = "loading") {
 }
 
 function setBusy(isBusy) {
-  for (const element of [
-    els.bundledBtn,
-    els.uploadBtn,
-    els.dayCalendar,
-    els.todayBtn,
-  ]) {
-    element.disabled = isBusy || ([els.dayCalendar, els.todayBtn].includes(element) && !state.context);
-  }
+  els.bundledBtn.disabled = isBusy;
+  els.uploadBtn.disabled = isBusy;
+  const dateUnavailable = isBusy || !state.context;
+  els.dayCalendar.disabled = dateUnavailable;
+  els.todayBtn.disabled = dateUnavailable;
+  const selectedIndex = state.availableDays.indexOf(state.selectedDay);
+  els.previousDayBtn.disabled = dateUnavailable || selectedIndex <= 0;
+  els.nextDayBtn.disabled = dateUnavailable || selectedIndex < 0 || selectedIndex >= state.availableDays.length - 1;
 }
 
 function gtfsToIsoDate(day) {
@@ -312,8 +322,14 @@ function defaultDay(days) {
 }
 
 function populateContextControls(context) {
-  state.availableDays = context.available_days || [];
+  state.availableDays = Array.from(new Set((context.available_days || []).map(String))).sort();
   state.selectedDay = state.availableDays.includes(state.selectedDay) ? state.selectedDay : defaultDay(state.availableDays);
+  routeDebug("app", "context controls populated", {
+    availableDayCount: state.availableDays.length,
+    firstAvailableDay: state.availableDays[0] || null,
+    lastAvailableDay: state.availableDays.at(-1) || null,
+    selectedDay: state.selectedDay,
+  });
   els.dayCalendar.min = gtfsToIsoDate(context.available_days[0] || "");
   els.dayCalendar.max = gtfsToIsoDate(context.available_days[context.available_days.length - 1] || "");
   els.dayCalendar.value = gtfsToIsoDate(state.selectedDay);
@@ -339,215 +355,75 @@ function populateContextControls(context) {
   saveSettings();
 }
 
-function requestRoutes(preserveTimeline = false) {
-  if (!state.context) return;
-  state.routeRequestInFlight = true;
-  setBusy(true);
-  if (!preserveTimeline) {
-    setTimelinePlaceholder("Loading selected day...");
-  }
-  worker.postMessage({
-    type: "routes",
-    day: state.selectedDay || null,
-    overrides: readConfig(),
+function visibleRouteDays(startOffset = 0, count = ROUTE_DAY_COUNT) {
+  if (!state.availableDays.includes(state.selectedDay)) return [];
+  const match = state.selectedDay.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (!match) return [];
+  const selected = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12);
+  return Array.from({ length: count }, (_, offset) => {
+    const day = new Date(selected);
+    day.setDate(day.getDate() + startOffset + offset);
+    return `${day.getFullYear()}${String(day.getMonth() + 1).padStart(2, "0")}${String(day.getDate()).padStart(2, "0")}`;
   });
 }
 
-function routeStations(itinerary) {
-  const stations = new Set([itinerary.departure_stop, itinerary.destination_stop]);
-  for (const leg of itinerary.legs || []) {
-    stations.add(leg.departure_stop);
-    stations.add(leg.destination_stop);
-    for (const point of leg.path || []) stations.add(point.stop_name);
-  }
-  return stations;
-}
-
-function timelineLabel(itinerary, medianDuration) {
-  const names = [itinerary.departure_stop, ...(itinerary.legs || []).map((leg) => leg.destination_stop)];
-  const duration = minutesToDuration(itinerary.total_duration_minutes);
-  const durationMinutes = Number(itinerary.total_duration_minutes || 0);
-  const durationColor = durationMinutes < medianDuration
-    ? "#15803d"
-    : durationMinutes > medianDuration
-      ? "#b91c1c"
-      : "#a16207";
-  const highlights = new Set(state.highlights);
-  const stations = routeStations(itinerary);
-  const matched = highlights.size > 0 && Array.from(highlights).every((station) => stations.has(station));
-  const hasStarredStation = highlights.size > 0 && Array.from(highlights).some((station) => stations.has(station));
-  const via = names.slice(1, -1);
-  return `
-    <span class="timeline-label-main${matched ? " highlighted" : ""}">
-      <span class="timeline-label-time">${clockLabel(itinerary.departure_minutes)}</span>
-      <span class="timeline-label-route"${hasStarredStation ? ' style="font-weight:800"' : ""}>${escapeHtml(names[0])} → ${escapeHtml(names.at(-1))}</span>
-      <span class="timeline-label-duration" style="color:${durationColor}">(<strong>${escapeHtml(duration)}</strong>)</span>
-    </span>
-    ${via.length ? `<span class="timeline-label-via">via ${via.map(escapeHtml).join(", ")}</span>` : ""}
-  `;
-}
-
-function medianTripDuration(itineraries) {
-  const durations = itineraries
-    .map((itinerary) => Number(itinerary.total_duration_minutes))
-    .filter(Number.isFinite)
-    .sort((left, right) => left - right);
-  if (!durations.length) return 0;
-  const middle = Math.floor(durations.length / 2);
-  return durations.length % 2
-    ? durations[middle]
-    : (durations[middle - 1] + durations[middle]) / 2;
-}
-
-function trainTypeClass(type) {
-  return String(type || "train").toLowerCase().replace(/[^a-z0-9_-]/g, "-");
-}
-
-function timelineTrainTypeColors(itineraries) {
-  const colors = new Map();
-  let fallbackIndex = 0;
-  for (const itinerary of itineraries) {
-    for (const leg of itinerary.legs || []) {
-      const type = String(leg.train_type || "Unknown");
-      if (colors.has(type)) continue;
-      const color = TRAIN_TYPE_COLORS[type]
-        || `hsl(${Math.round((fallbackIndex++ * 137.508) % 360)} 68% 40%)`;
-      colors.set(type, color);
-    }
-  }
-  return colors;
-}
-
-function timelineWindow(itineraries) {
-  const legs = itineraries.flatMap((itinerary) => itinerary.legs || []);
-  const earliestDeparture = Math.min(...legs.map((leg) => Number(leg.departure_minutes)));
-  const start = Number.isFinite(earliestDeparture) && earliestDeparture >= 240 ? 240 : 0;
-  const end = 1440;
-  const ticks = [];
-  for (let minute = start; minute <= end; minute += 120) {
-    if (minute !== 1440) ticks.push(minute);
-  }
-  return { start, end, ticks };
-}
-
-function setTimelinePlaceholder(message) {
-  els.timeline.innerHTML = `<div class="timeline-empty">${escapeHtml(message)}</div>`;
-}
-
-function renderRefreshNotice() {
-  els.timeline.innerHTML = `
-    <div class="timeline-empty refresh-notice" role="status" aria-live="polite">
-      <span class="route-refresh-spinner" aria-hidden="true"></span>
-      <span>Route settings changed. Refreshing routes automatically…</span>
-    </div>
-  `;
-}
-
-function showRefreshNotice() {
-  state.config = readConfig();
-  saveSettings();
+function requestRoutes(preserveTimeline = false) {
   if (!state.context) return;
-  state.settingsDirty = true;
-  state.routes = { outward: [], returns: [], selected_day: state.selectedDay };
-  renderRefreshNotice();
-  scheduleRouteRefresh();
-}
-
-function scheduleRouteRefresh() {
-  if (state.refreshTimer !== null) {
-    clearTimeout(state.refreshTimer);
-    state.refreshTimer = null;
-  }
-  if (!state.context || state.refreshInFlight || state.routeRequestInFlight) return;
-  state.refreshTimer = window.setTimeout(refreshRoutes, AUTO_REFRESH_DELAY_MS);
-}
-
-function refreshRoutes() {
-  state.refreshTimer = null;
-  if (!state.context || state.refreshInFlight || !state.settingsDirty) return;
-  state.settingsDirty = false;
-  state.refreshInFlight = true;
-  state.config = readConfig();
-  saveSettings();
-  setBusy(true);
-  worker.postMessage({ type: "apply-config", config: state.config });
-}
-
-function renderTimeline(itineraries) {
-  if (!itineraries.length) {
-    els.timeline.innerHTML = `<div class="timeline-empty">No matching connections for this day.</div>`;
-    return;
-  }
-  const { start, end, ticks } = timelineWindow(itineraries);
-  const chartDuration = end - start;
-  const trainTypeColors = timelineTrainTypeColors(itineraries);
-  const medianDuration = medianTripDuration(itineraries);
-  const rows = itineraries.map((itinerary) => {
-    const segments = [];
-    itinerary.legs.forEach((leg, legIndex) => {
-      segments.push({
-        kind: "train",
-        label: leg.train_number || "—",
-        start: leg.departure_minutes,
-        end: leg.arrival_minutes,
-        trainType: leg.train_type || "Unknown",
-        detail: leg,
-      });
-      if (itinerary.transfers[legIndex]) {
-        const transfer = itinerary.transfers[legIndex];
-        segments.push({
-          kind: "transfer",
-          label: minutesToDuration(transfer.wait_minutes),
-          start: transfer.arrival_minutes,
-          end: transfer.departure_minutes,
-        });
+  state.routeRequestInFlight = true;
+  state.routeRequestMode = "replace";
+  state.routeRequestBaseRoutes = null;
+  state.routeRequestId += 1;
+  const requestId = state.routeRequestId;
+  const days = visibleRouteDays();
+  const overrides = readConfig();
+  routeDebug("app", "route request posted", {
+    requestId,
+    selectedDay: state.selectedDay,
+    days,
+    preserveTimeline,
+    config: routeConfigSummary(overrides),
+  });
+  for (const delay of [10_000, 30_000, 120_000]) {
+    window.setTimeout(() => {
+      if (state.routeRequestInFlight && state.routeRequestId === requestId) {
+        routeDebug("app", "route request still running", { requestId, elapsedMs: delay, days });
       }
-    });
-    const bars = segments.map((segment) => {
-      const left = ((segment.start - start) / chartDuration) * 100;
-      const width = Math.max(0.3, ((segment.end - segment.start) / chartDuration) * 100);
-      const detail = segment.detail ? encodeURIComponent(JSON.stringify(segment.detail)) : "";
-      const trainColor = segment.trainType ? trainTypeColors.get(segment.trainType) : "";
-      const colorStyle = trainColor ? `--train-color:${trainColor};` : "";
-      const title = segment.trainType
-        ? ` title="${escapeHtml(`${segment.trainType} ${segment.label}`)}"`
-        : "";
-      return `<button class="timeline-bar ${segment.kind} ${segment.trainType ? trainTypeClass(segment.trainType) : ""}" data-detail="${detail}"${title} style="${colorStyle}left:${left}%;width:${width}%">${escapeHtml(segment.label)}</button>`;
-    }).join("");
-    return `
-      <div class="timeline-row">
-        <div class="timeline-label">${timelineLabel(itinerary, medianDuration)}</div>
-        <div class="timeline-lane">${bars}</div>
-      </div>
-    `;
-  }).join("");
-  const legend = Array.from(trainTypeColors, ([type, color]) => `
-    <span class="timeline-legend-item"><i class="timeline-legend-swatch" style="background:${color}"></i>${escapeHtml(type)}</span>
-  `).join("");
-  const position = (minute) => ((minute - start) / chartDuration) * 100;
-  els.timeline.innerHTML = `
-    <div class="timeline-legend" aria-label="Train type color legend">${legend}</div>
-    <div class="timeline-scale">${ticks.map((minute) => `<span style="left:${position(minute)}%">${clockLabel(minute)}</span>`).join("")}</div>
-    <div class="timeline-grid">
-      <div class="timeline-grid-lines" aria-hidden="true">${ticks.map((minute) => `<span style="left:${position(minute)}%"></span>`).join("")}</div>
-      ${rows}
-    </div>
-  `;
-}
-
-function renderCurrentTab() {
-  if (state.selectedTab === "back") {
-    renderTimeline(state.routes.returns || []);
-  } else {
-    renderTimeline(state.routes.outward || []);
+    }, delay);
   }
+  setBusy(true);
+  if (!preserveTimeline) {
+    setTimelinePlaceholder("Loading selected days...");
+  }
+  worker.postMessage({
+    type: "routes",
+    protocolVersion: ROUTE_PROTOCOL_VERSION,
+    requestId,
+    selectedDay: state.selectedDay,
+    days,
+    overrides,
+  });
 }
 
-function renderRoutes(result) {
-  state.routes = result;
-  renderCurrentTab();
-}
-
+const {
+  renderCurrentTab,
+  renderRefreshNotice,
+  renderRoutes,
+  scheduleRouteRefresh,
+  setTimelinePlaceholder,
+  showRefreshNotice,
+} = createTimeline({
+  AUTO_REFRESH_DELAY_MS,
+  TRAIN_TYPE_COLORS,
+  clockLabel,
+  els,
+  escapeHtml,
+  minutesToDuration,
+  readConfig,
+  saveSettings,
+  setBusy,
+  state,
+  worker,
+});
 function syncSelectedTabButtons() {
   for (const button of els.tabs.querySelectorAll("[data-tab]")) {
     button.classList.toggle("selected", button.dataset.tab === state.selectedTab);
@@ -584,180 +460,38 @@ function hideDetail() {
   els.detailLayer.hidden = true;
 }
 
-worker.onmessage = (event) => {
-  const { type } = event.data;
-  if (type === "progress") {
-    setBusy(true);
-    setStatus(event.data.message, event.data.progress, "loading");
-    return;
-  }
-  if (type === "ready") {
-    state.context = event.data.context;
-    populateContextControls(state.context);
-    setStatus(`Cache ready${event.data.cached ? " from browser cache" : ""}. GTFS service dates: ${state.context.coverage.label}.`, 100, "ready");
-    if (state.settingsDirty) {
-      state.refreshInFlight = false;
-      scheduleRouteRefresh();
-      return;
-    }
-    requestRoutes(state.refreshInFlight);
-    return;
-  }
-  if (type === "routes") {
-    state.routeRequestInFlight = false;
-    state.refreshInFlight = false;
-    if (state.settingsDirty) {
-      scheduleRouteRefresh();
-      return;
-    }
-    renderRoutes(event.data.result);
-    setBusy(false);
-    return;
-  }
-  if (type === "no-source") {
-    setTimelinePlaceholder("Load a GTFS archive to build routes.");
-    setStatus("Waiting for GTFS archive.", 0, "idle");
-    setBusy(false);
-    return;
-  }
-  if (type === "error") {
-    if (state.refreshTimer !== null) {
-      clearTimeout(state.refreshTimer);
-      state.refreshTimer = null;
-    }
-    state.refreshInFlight = false;
-    state.routeRequestInFlight = false;
-    state.settingsDirty = false;
-    if (els.timeline.querySelector(".route-refresh-spinner")) {
-      setTimelinePlaceholder("Unable to refresh routes. Check the error above.");
-    }
-    setStatus(event.data.message, 0, "error");
-    setBusy(false);
-  }
+export const app = {
+  ROUTE_PROTOCOL_VERSION,
+  SERVER_GTFS_URL,
+  els,
+  gtfsToIsoDate,
+  hideDetail,
+  isoToGtfsDate,
+  populateContextControls,
+  readConfig,
+  routeDebug,
+  renderCurrentTab,
+  renderRefreshNotice,
+  renderRoutes,
+  renderStationPicker,
+  renderStationPickers,
+  renderTrainTypePicker,
+  requestRoutes,
+  saveSettings,
+  scheduleRouteRefresh,
+  setBusy,
+  setStatus,
+  setTimelinePlaceholder,
+  showDetail,
+  showRefreshNotice,
+  state,
+  syncSelectedTabButtons,
+  syncSetValue,
+  syncStationState,
+  todayGtfsDate,
+  visibleRouteDays,
+  worker,
+  writeConfig,
 };
 
-els.bundledBtn.addEventListener("click", () => {
-  state.config = readConfig();
-  saveSettings();
-  setBusy(true);
-  worker.postMessage({ type: "load-bundled", url: SERVER_GTFS_URL, config: state.config });
-});
-
-els.uploadBtn.addEventListener("click", async () => {
-  const file = els.uploadInput.files[0];
-  if (!file) {
-    setStatus("Choose a GTFS zip file first.", 0, "error");
-    return;
-  }
-  state.config = readConfig();
-  saveSettings();
-  setBusy(true);
-  const buffer = await file.arrayBuffer();
-  worker.postMessage(
-    { type: "load-upload", buffer, name: file.name, lastModified: file.lastModified, config: state.config },
-    [buffer],
-  );
-});
-
-els.dayCalendar.addEventListener("change", () => {
-  const selected = isoToGtfsDate(els.dayCalendar.value);
-  if (!state.availableDays.includes(selected)) {
-    setStatus("No service matching route settings for the selected calendar day.", 0, "error");
-    els.dayCalendar.value = gtfsToIsoDate(state.selectedDay);
-    return;
-  }
-  state.selectedDay = selected;
-  saveSettings();
-  if (state.settingsDirty) {
-    showRefreshNotice();
-    return;
-  }
-  requestRoutes();
-});
-els.todayBtn.addEventListener("click", () => {
-  const today = todayGtfsDate();
-  if (!state.availableDays.includes(today)) {
-    setStatus("No service matching route settings is available today.", 0, "error");
-    return;
-  }
-  els.dayCalendar.value = gtfsToIsoDate(today);
-  els.dayCalendar.dispatchEvent(new Event("change", { bubbles: true }));
-});
-els.tabs.addEventListener("click", (event) => {
-  const tab = event.target.closest("[data-tab]");
-  if (!tab) return;
-  state.selectedTab = tab.dataset.tab;
-  syncSelectedTabButtons();
-  saveSettings();
-  if (state.settingsDirty || state.refreshInFlight) {
-    renderRefreshNotice();
-  } else {
-    renderCurrentTab();
-  }
-});
-els.timeline.addEventListener("click", (event) => {
-  const bar = event.target.closest(".timeline-bar.train");
-  if (!bar || !bar.dataset.detail) return;
-  showDetail(JSON.parse(decodeURIComponent(bar.dataset.detail)), event);
-});
-els.detailLayer.addEventListener("click", hideDetail);
-for (const filter of els.stationFilters) {
-  filter.addEventListener("input", () => {
-    renderStationPicker(filter.dataset.role, state.context?.station_names || [], state.config, filter.value);
-  });
-}
-els.trainTypeFilter.addEventListener("input", () => {
-  renderTrainTypePicker(state.context?.train_types || [], els.trainTypeFilter.value);
-});
-els.trainTypes.addEventListener("change", (event) => {
-  if (event.target instanceof HTMLInputElement) {
-    state.config.train_types = syncSetValue(state.config.train_types, event.target);
-    saveSettings();
-    renderTrainTypePicker(state.context?.train_types || [], els.trainTypeFilter.value);
-    showRefreshNotice();
-  }
-});
-for (const [role, container] of [
-  ["local_origins", els.localOrigins],
-  ["connection_stations", els.connectionStations],
-  ["side_b_destinations", els.sideBDestinations],
-]) {
-  container.addEventListener("change", (event) => {
-    if (event.target instanceof HTMLInputElement) {
-      syncStationState(role, event.target);
-      saveSettings();
-      renderStationPicker(role, state.context?.station_names || [], state.config, document.querySelector(`.station-filter[data-role="${role}"]`)?.value || "");
-      showRefreshNotice();
-    }
-  });
-  container.addEventListener("click", (event) => {
-    const star = event.target.closest("[data-highlight-station]");
-    if (!star) return;
-    const station = star.dataset.highlightStation;
-    const highlights = new Set(state.highlights);
-    if (highlights.has(station)) {
-      highlights.delete(station);
-    } else {
-      highlights.add(station);
-    }
-    state.highlights = Array.from(highlights).sort();
-    saveSettings();
-    renderStationPickers(state.context?.station_names || [], state.config);
-    if (state.settingsDirty || state.refreshInFlight) {
-      renderRefreshNotice();
-    } else {
-      renderCurrentTab();
-    }
-  });
-}
-for (const input of [els.minTransfer, els.maxTransfer, els.maxTransferCount, els.maxDuration]) {
-  input.addEventListener("change", showRefreshNotice);
-}
-
-writeConfig(state.config);
-syncSelectedTabButtons();
-saveSettings();
-setTimelinePlaceholder("Checking browser storage for a saved GTFS archive...");
-setStatus("Checking browser storage for a saved GTFS archive.", 5, "loading");
-setBusy(true);
-worker.postMessage({ type: "load-last-source", config: state.config });
+import("./app-events.js");

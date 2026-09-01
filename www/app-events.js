@@ -1,0 +1,316 @@
+import { app } from "./app.js";
+
+const {
+  ROUTE_PROTOCOL_VERSION,
+  SERVER_GTFS_URL,
+  els,
+  gtfsToIsoDate,
+  hideDetail,
+  isoToGtfsDate,
+  populateContextControls,
+  readConfig,
+  routeDebug,
+  renderCurrentTab,
+  renderRefreshNotice,
+  renderRoutes,
+  renderStationPicker,
+  renderStationPickers,
+  renderTrainTypePicker,
+  requestRoutes,
+  saveSettings,
+  scheduleRouteRefresh,
+  setBusy,
+  setStatus,
+  setTimelinePlaceholder,
+  showDetail,
+  showRefreshNotice,
+  state,
+  syncSelectedTabButtons,
+  syncSetValue,
+  syncStationState,
+  todayGtfsDate,
+  visibleRouteDays,
+  worker,
+  writeConfig,
+} = app;
+
+function resultForActiveRequest(result) {
+  if (state.routeRequestMode !== "append") return result;
+  const base = state.routeRequestBaseRoutes || { days: [], outward: [], returns: [] };
+  return {
+    selected_day: state.selectedDay,
+    days: [...(base.days || []), ...(result.days || [])],
+    outward: [...(base.outward || []), ...(result.outward || [])],
+    returns: [...(base.returns || []), ...(result.returns || [])],
+  };
+}
+
+function requestMoreRoutes() {
+  if (!state.context || state.routeRequestInFlight) return;
+  const base = state.routes;
+  const days = visibleRouteDays(base.days?.length || 0, 3);
+  state.routeRequestInFlight = true;
+  state.routeRequestMode = "append";
+  state.routeRequestBaseRoutes = base;
+  state.routeRequestId += 1;
+  const requestId = state.routeRequestId;
+  routeDebug("app", "load-more route request posted", { requestId, selectedDay: state.selectedDay, days });
+  setBusy(true);
+  renderCurrentTab();
+  worker.postMessage({
+    type: "routes",
+    protocolVersion: ROUTE_PROTOCOL_VERSION,
+    requestId,
+    selectedDay: state.selectedDay,
+    days,
+    overrides: readConfig(),
+  });
+}
+
+worker.onmessage = (event) => {
+  const { type } = event.data;
+  if (["ready", "routes-progress", "routes", "error"].includes(type)) {
+    routeDebug("app", `worker message: ${type}`, {
+      requestId: event.data.requestId ?? null,
+      activeRequestId: state.routeRequestId,
+      completedDays: event.data.completedDays ?? null,
+      totalDays: event.data.totalDays ?? null,
+      resultDay: event.data.result?.selected_day ?? null,
+      selectedDay: state.selectedDay,
+      message: event.data.message ?? null,
+    });
+  }
+  if (type === "progress") {
+    setBusy(true);
+    setStatus(event.data.message, event.data.progress, "loading");
+    return;
+  }
+  if (type === "ready") {
+    state.context = event.data.context;
+    populateContextControls(state.context);
+    setStatus(`Cache ready${event.data.cached ? " from browser cache" : ""}. GTFS service dates: ${state.context.coverage.label}.`, 100, "ready");
+    if (state.settingsDirty) {
+      state.refreshInFlight = false;
+      scheduleRouteRefresh();
+      return;
+    }
+    requestRoutes(state.refreshInFlight);
+    return;
+  }
+  if (type === "routes-progress") {
+    if (event.data.requestId !== state.routeRequestId) return;
+    if (state.settingsDirty) return;
+    const result = event.data.result;
+    if (result.selected_day !== state.selectedDay) return;
+    renderRoutes(resultForActiveRequest(result));
+    setStatus(
+      `Showing ${event.data.completedDays} of ${event.data.totalDays} days; loading more routes…`,
+      Math.round((event.data.completedDays / event.data.totalDays) * 100),
+      "loading",
+    );
+    return;
+  }
+  if (type === "routes") {
+    if (event.data.requestId !== state.routeRequestId) {
+      routeDebug("app", "route response rejected", {
+        responseRequestId: event.data.requestId ?? null,
+        activeRequestId: state.routeRequestId,
+        resultDay: event.data.result?.selected_day ?? null,
+        selectedDay: state.selectedDay,
+      });
+      if (event.data.requestId == null) {
+        state.routeRequestInFlight = false;
+        setStatus("An outdated route worker was detected. Reload the page once.", 0, "error");
+        setBusy(false);
+      }
+      return;
+    }
+    state.routeRequestInFlight = false;
+    state.refreshInFlight = false;
+    if (state.settingsDirty) {
+      state.routeRequestMode = "replace";
+      state.routeRequestBaseRoutes = null;
+      scheduleRouteRefresh();
+      return;
+    }
+    const result = resultForActiveRequest(event.data.result);
+    if (result.selected_day !== state.selectedDay) {
+      requestRoutes();
+      return;
+    }
+    const expectedDays = result.days || [];
+    const expectedDaySet = new Set(expectedDays);
+    renderRoutes({
+      ...result,
+      days: expectedDays,
+      outward: (result.outward || []).filter((itinerary) => expectedDaySet.has(itinerary.date)),
+      returns: (result.returns || []).filter((itinerary) => expectedDaySet.has(itinerary.date)),
+    });
+    setStatus(`Routes ready through ${gtfsToIsoDate(expectedDays.at(-1))}.`, 100, "ready");
+    state.routeRequestMode = "replace";
+    state.routeRequestBaseRoutes = null;
+    setBusy(false);
+    return;
+  }
+  if (type === "no-source") {
+    setTimelinePlaceholder("Load a GTFS archive to build routes.");
+    setStatus("Waiting for GTFS archive.", 0, "idle");
+    setBusy(false);
+    return;
+  }
+  if (type === "error") {
+    if (state.refreshTimer !== null) {
+      clearTimeout(state.refreshTimer);
+      state.refreshTimer = null;
+    }
+    state.refreshInFlight = false;
+    state.routeRequestInFlight = false;
+    state.routeRequestMode = "replace";
+    state.routeRequestBaseRoutes = null;
+    state.settingsDirty = false;
+    if (els.timeline.querySelector(".route-refresh-spinner")) {
+      setTimelinePlaceholder("Unable to refresh routes. Check the error above.");
+    }
+    setStatus(event.data.message, 0, "error");
+    setBusy(false);
+  }
+};
+
+els.bundledBtn.addEventListener("click", () => {
+  state.config = readConfig();
+  saveSettings();
+  setBusy(true);
+  worker.postMessage({ type: "load-bundled", url: SERVER_GTFS_URL, config: state.config });
+});
+
+els.uploadBtn.addEventListener("click", async () => {
+  const file = els.uploadInput.files[0];
+  if (!file) {
+    setStatus("Choose a GTFS zip file first.", 0, "error");
+    return;
+  }
+  state.config = readConfig();
+  saveSettings();
+  setBusy(true);
+  const buffer = await file.arrayBuffer();
+  worker.postMessage(
+    { type: "load-upload", buffer, name: file.name, lastModified: file.lastModified, config: state.config },
+    [buffer],
+  );
+});
+
+els.dayCalendar.addEventListener("change", () => {
+  const selected = isoToGtfsDate(els.dayCalendar.value);
+  if (!state.availableDays.includes(selected)) {
+    setStatus("No service matching route settings for the selected calendar day.", 0, "error");
+    els.dayCalendar.value = gtfsToIsoDate(state.selectedDay);
+    return;
+  }
+  state.selectedDay = selected;
+  saveSettings();
+  if (state.settingsDirty) {
+    showRefreshNotice();
+    return;
+  }
+  requestRoutes();
+});
+els.todayBtn.addEventListener("click", () => {
+  const today = todayGtfsDate();
+  if (!state.availableDays.includes(today)) {
+    setStatus("No service matching route settings is available today.", 0, "error");
+    return;
+  }
+  els.dayCalendar.value = gtfsToIsoDate(today);
+  els.dayCalendar.dispatchEvent(new Event("change", { bubbles: true }));
+});
+function selectAdjacentDay(offset) {
+  const selectedIndex = state.availableDays.indexOf(state.selectedDay);
+  const day = state.availableDays[selectedIndex + offset];
+  if (!day) return;
+  els.dayCalendar.value = gtfsToIsoDate(day);
+  els.dayCalendar.dispatchEvent(new Event("change", { bubbles: true }));
+}
+els.previousDayBtn.addEventListener("click", () => selectAdjacentDay(-1));
+els.nextDayBtn.addEventListener("click", () => selectAdjacentDay(1));
+els.tabs.addEventListener("click", (event) => {
+  const tab = event.target.closest("[data-tab]");
+  if (!tab) return;
+  state.selectedTab = tab.dataset.tab;
+  syncSelectedTabButtons();
+  saveSettings();
+  if (state.settingsDirty || state.refreshInFlight) {
+    renderRefreshNotice();
+  } else {
+    renderCurrentTab();
+  }
+});
+els.timeline.addEventListener("click", (event) => {
+  if (event.target.closest("#timeline-load-more")) {
+    requestMoreRoutes();
+    return;
+  }
+  const bar = event.target.closest(".timeline-bar.train");
+  if (!bar || !bar.dataset.detail) return;
+  showDetail(JSON.parse(decodeURIComponent(bar.dataset.detail)), event);
+});
+els.detailLayer.addEventListener("click", hideDetail);
+for (const filter of els.stationFilters) {
+  filter.addEventListener("input", () => {
+    renderStationPicker(filter.dataset.role, state.context?.station_names || [], state.config, filter.value);
+  });
+}
+els.trainTypeFilter.addEventListener("input", () => {
+  renderTrainTypePicker(state.context?.train_types || [], els.trainTypeFilter.value);
+});
+els.trainTypes.addEventListener("change", (event) => {
+  if (event.target instanceof HTMLInputElement) {
+    state.config.train_types = syncSetValue(state.config.train_types, event.target);
+    saveSettings();
+    renderTrainTypePicker(state.context?.train_types || [], els.trainTypeFilter.value);
+    showRefreshNotice();
+  }
+});
+for (const [role, container] of [
+  ["local_origins", els.localOrigins],
+  ["connection_stations", els.connectionStations],
+  ["side_b_destinations", els.sideBDestinations],
+]) {
+  container.addEventListener("change", (event) => {
+    if (event.target instanceof HTMLInputElement) {
+      syncStationState(role, event.target);
+      saveSettings();
+      renderStationPicker(role, state.context?.station_names || [], state.config, document.querySelector(`.station-filter[data-role="${role}"]`)?.value || "");
+      showRefreshNotice();
+    }
+  });
+  container.addEventListener("click", (event) => {
+    const star = event.target.closest("[data-highlight-station]");
+    if (!star) return;
+    const station = star.dataset.highlightStation;
+    const highlights = new Set(state.highlights);
+    if (highlights.has(station)) {
+      highlights.delete(station);
+    } else {
+      highlights.add(station);
+    }
+    state.highlights = Array.from(highlights).sort();
+    saveSettings();
+    renderStationPickers(state.context?.station_names || [], state.config);
+    if (state.settingsDirty || state.refreshInFlight) {
+      renderRefreshNotice();
+    } else {
+      renderCurrentTab();
+    }
+  });
+}
+for (const input of [els.minTransfer, els.maxTransfer, els.maxTransferCount, els.maxDuration]) {
+  input.addEventListener("change", showRefreshNotice);
+}
+
+writeConfig(state.config);
+syncSelectedTabButtons();
+saveSettings();
+setTimelinePlaceholder("Checking browser storage for a saved GTFS archive...");
+setStatus("Checking browser storage for a saved GTFS archive.", 5, "loading");
+setBusy(true);
+worker.postMessage({ type: "load-last-source", config: state.config });

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Train Route Explorer</title>
     <link rel="stylesheet" href="./style.css" />
+    <link rel="stylesheet" href="./controls.css" />
   </head>
   <body>
     <header class="app-header">
@@ -37,14 +38,16 @@
         <header class="timetable-toolbar">
           <div class="toolbar-primary">
             <div id="route-direction-tabs" class="tab-buttons" aria-label="Journey direction">
-              <button data-tab="out" class="selected" aria-pressed="true">Outbound</button>
-              <button data-tab="back" aria-pressed="false">Return</button>
+              <button data-tab="out" class="selected" aria-pressed="true">Departure → Arrival</button>
+              <button data-tab="back" aria-pressed="false">Arrival → Departure</button>
             </div>
 
             <div class="day-control">
+              <button id="previous-day-button" class="day-arrow" type="button" aria-label="Previous service day" title="Previous service day" disabled>←</button>
               <label class="visually-hidden" for="day-calendar">Day</label>
               <input id="day-calendar" type="date" disabled />
               <button id="today-button" type="button" disabled>Today</button>
+              <button id="next-day-button" class="day-arrow" type="button" aria-label="Next service day" title="Next service day" disabled>→</button>
             </div>
 
             <div class="toolbar-menus">
@@ -84,17 +87,17 @@
 
                   <section class="time-config-panel">
                     <label>
-                      Minimum transfer
+                      Minimum transfer time
                       <span class="input-with-unit">
                         <input id="config-min-transfer" type="number" min="0" step="1" aria-describedby="min-transfer-unit" />
-                        <span id="min-transfer-unit" class="input-unit">min</span>
+                        <span id="min-transfer-unit" class="input-unit">minutes</span>
                       </span>
                     </label>
                     <label>
-                      Maximum transfer
+                      Maximum transfer time
                       <span class="input-with-unit">
                         <input id="config-max-transfer" type="number" min="0" step="1" aria-describedby="max-transfer-unit" />
-                        <span id="max-transfer-unit" class="input-unit">min</span>
+                        <span id="max-transfer-unit" class="input-unit">minutes</span>
                       </span>
                     </label>
                     <label>
@@ -105,10 +108,10 @@
                       </span>
                     </label>
                     <label>
-                      Maximum journey
+                      Maximum journey duration
                       <span class="input-with-unit">
                         <input id="config-max-duration" type="number" min="0" step="1" aria-describedby="max-duration-unit" />
-                        <span id="max-duration-unit" class="input-unit">min</span>
+                        <span id="max-duration-unit" class="input-unit">minutes</span>
                       </span>
                     </label>
                   </section>
@@ -172,7 +175,7 @@
     <script type="module" src="./app.js"></script>
     <script type="module" src="./layout.js"></script>
     <script type="module" src="./panels.js"></script>
-    <script type="module" src="./sorting.js"></script>
+    <script type="module" src="./sorting.js?grouped-sorting=2"></script>
     <script type="module" src="./row-details.js"></script>
     <script type="module" src="./switch-toggle.js"></script>
     <script type="module" src="./legend-config.js"></script>

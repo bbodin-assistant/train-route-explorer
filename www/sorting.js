@@ -61,7 +61,7 @@ timelineSortStyle.textContent = `
 document.head.append(timelineSortStyle);
 
 const sortState = { key: null, direction: null };
-const defaultRowsByGrid = new WeakMap();
+const defaultRowsByGroup = new WeakMap();
 let enhancementFrame = null;
 
 function rowTimeMinutes(row) {
@@ -88,18 +88,18 @@ function rowDurationMinutes(row) {
   return Number(match[1] || 0) * 60 + Number(match[2] || 0);
 }
 
-function currentGrid() {
-  return timeline?.querySelector(".timeline-grid") || null;
+function currentGroups() {
+  return Array.from(timeline?.querySelectorAll(".timeline-day-group") || []);
 }
 
-function rememberDefaultRows(grid) {
-  if (!grid || defaultRowsByGrid.has(grid)) return;
-  defaultRowsByGrid.set(grid, Array.from(grid.querySelectorAll(":scope > .timeline-row")));
+function rememberDefaultRows(group) {
+  if (!group || defaultRowsByGroup.has(group)) return;
+  defaultRowsByGroup.set(group, Array.from(group.querySelectorAll(":scope > .timeline-row")));
 }
 
-function desiredRows(grid) {
-  rememberDefaultRows(grid);
-  const defaults = defaultRowsByGrid.get(grid) || [];
+function desiredRows(group) {
+  rememberDefaultRows(group);
+  const defaults = defaultRowsByGroup.get(group) || [];
   if (!sortState.key || !sortState.direction) return defaults;
 
   const valueFor = sortState.key === "duration" ? rowDurationMinutes : rowTimeMinutes;
@@ -114,13 +114,13 @@ function desiredRows(grid) {
 }
 
 function applyTimelineSort() {
-  const grid = currentGrid();
-  if (!grid) return;
-  const wanted = desiredRows(grid);
-  const current = Array.from(grid.querySelectorAll(":scope > .timeline-row"));
-  const alreadyOrdered = wanted.length === current.length && wanted.every((row, index) => current[index] === row);
-  if (!alreadyOrdered) {
-    for (const row of wanted) grid.append(row);
+  for (const group of currentGroups()) {
+    const wanted = desiredRows(group);
+    const current = Array.from(group.querySelectorAll(":scope > .timeline-row"));
+    const alreadyOrdered = wanted.length === current.length && wanted.every((row, index) => current[index] === row);
+    if (!alreadyOrdered) {
+      for (const row of wanted) group.append(row);
+    }
   }
   updateSortButtons();
 }
@@ -137,7 +137,8 @@ function updateSortButtons() {
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-pressed", String(active));
     const arrow = button.querySelector(".timeline-sort-arrow");
-    if (arrow) arrow.textContent = sortArrow(key);
+    const nextArrow = sortArrow(key);
+    if (arrow && arrow.textContent !== nextArrow) arrow.textContent = nextArrow;
     const directionText = !active ? "default order" : sortState.direction === "asc" ? "ascending" : "descending";
     button.title = `${button.dataset.sortLabel}: ${directionText}`;
   }
@@ -213,8 +214,7 @@ function shiftFourOClockTicks() {
 function enhanceTimelineSorting() {
   enhancementFrame = null;
   if (!timeline) return;
-  const grid = currentGrid();
-  if (grid) rememberDefaultRows(grid);
+  currentGroups().forEach(rememberDefaultRows);
   installSortControls();
   shiftFourOClockTicks();
   applyTimelineSort();
