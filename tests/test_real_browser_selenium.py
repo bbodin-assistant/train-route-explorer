@@ -6,7 +6,40 @@ from selenium.common.exceptions import StaleElementReferenceException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 
-from test_station_filter_selenium import ROLE_TO_LIST, StationFilterRegressionTest
+from test_station_filter_selenium import ROLE_TO_LIST, TEST_URL, StationFilterRegressionTest
+
+
+_original_close_overlays = StationFilterRegressionTest._close_overlays
+
+
+def _close_overlays_deterministically(self):
+    _original_close_overlays(self)
+    self.driver.execute_script(
+        """
+        const frame = document.querySelector('#train-detail-frame');
+        const layer = document.querySelector('#train-detail-dismiss-layer');
+        if (frame) frame.hidden = true;
+        if (layer) layer.hidden = true;
+        """
+    )
+    self.wait.until(
+        lambda driver: driver.execute_script(
+            """
+            const frame = document.querySelector('#train-detail-frame');
+            const layer = document.querySelector('#train-detail-dismiss-layer');
+            return (!frame || frame.hidden) && (!layer || layer.hidden);
+            """
+        )
+    )
+    self.wait.until(
+        lambda driver: not driver.execute_script(
+            "return Boolean(history.state?.trainRouteExplorerDetailOpen);"
+        )
+    )
+    self.assertEqual(self.driver.current_url.rstrip("/"), TEST_URL.rstrip("/"))
+
+
+StationFilterRegressionTest._close_overlays = _close_overlays_deterministically
 
 
 def test_40_paris_filter_works_for_departure_via_and_arrival_and_can_select(self):
@@ -77,7 +110,8 @@ def test_55_saujon_massy_via_angouleme_september_1_2026(self):
     result = self.driver.execute_async_script(
         """
         const done = arguments[0];
-        import('./app.js?v=0.23').then(({ app }) => {
+        const appUrl = new URL('./app.js?v=0.23', document.baseURI).href;
+        import(appUrl).then(({ app }) => {
           window.__saujonMassyApp = app;
           app.state.config = {
             ...app.state.config,
