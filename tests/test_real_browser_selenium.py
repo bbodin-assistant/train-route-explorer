@@ -77,7 +77,7 @@ def test_55_saujon_massy_via_angouleme_september_1_2026(self):
     result = self.driver.execute_async_script(
         """
         const done = arguments[0];
-        import('./app.js?v=0.16').then(({ app }) => {
+        import('./app.js?v=0.23').then(({ app }) => {
           window.__saujonMassyApp = app;
           app.state.config = {
             ...app.state.config,
