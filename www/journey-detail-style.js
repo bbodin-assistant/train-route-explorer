@@ -176,6 +176,7 @@ let touchStartY = null;
 let touchDragY = 0;
 const mobileDetailMedia = window.matchMedia("(max-width: 560px)");
 const DETAIL_HISTORY_KEY = "trainRouteExplorerDetailOpen";
+const DETAIL_HISTORY_BASE_KEY = "trainRouteExplorerDetailBase";
 
 function markStationEmphasis(rows) {
   const stationRows = rows.filter((row) => row.classList.contains("journey-detail-stop"));
@@ -258,7 +259,9 @@ function currentHistoryIsDetail() {
 function pushDetailHistoryEntry() {
   if (!detailIsOpen() || currentHistoryIsDetail()) return;
   const currentState = history.state && typeof history.state === "object" ? history.state : {};
-  history.pushState({ ...currentState, [DETAIL_HISTORY_KEY]: true }, "");
+  const baseState = { ...currentState, [DETAIL_HISTORY_BASE_KEY]: true };
+  history.replaceState(baseState, "", window.location.href);
+  history.pushState({ ...baseState, [DETAIL_HISTORY_KEY]: true }, "", window.location.href);
 }
 
 function dismissThroughExistingHandlers() {
