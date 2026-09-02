@@ -82,7 +82,7 @@ jobs:
     name: Selenium browser test
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
     permissions:
       contents: read
     defaults:
@@ -118,6 +118,8 @@ jobs:
           trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
           python3 tests/test_route_dedupe_selenium.py
           python3 tests/test_real_browser_selenium.py
+          python3 tests/test_timeline_time_range_selenium.py
+          python3 tests/test_trip_detail_mobile_selenium.py
 
   deploy:
     name: Deploy
