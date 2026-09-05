@@ -34,8 +34,8 @@ def test_25_timeline_shows_arrival_beside_departure(self):
                 const arrivalRect = arrival.getBoundingClientRect();
                 const rowRect = row.getBoundingClientRect();
                 return {
-                  expectedDeparture: firstLeg.departure_time,
-                  expectedArrival: lastLeg.arrival_time,
+                  expectedDeparture: firstLeg.departure_time.slice(0, 5),
+                  expectedArrival: lastLeg.arrival_time.slice(0, 5),
                   departure: departure.textContent.trim(),
                   arrival: arrival.textContent.trim(),
                   arrow: arrow.textContent.trim(),
