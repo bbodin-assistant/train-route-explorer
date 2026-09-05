@@ -119,6 +119,7 @@ jobs:
           python3 tests/test_route_dedupe_selenium.py
           python3 tests/test_real_browser_selenium.py
           python3 tests/test_timeline_time_range_selenium.py
+          python3 tests/test_mobile_widget_visibility_selenium.py
           python3 tests/test_trip_detail_mobile_selenium.py
 
   deploy:
