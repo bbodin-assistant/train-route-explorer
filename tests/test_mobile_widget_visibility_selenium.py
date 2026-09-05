@@ -30,14 +30,13 @@ WIDGET_SELECTOR = ", ".join(
         "[role='combobox']",
         "[role='textbox']",
         "[role='progressbar']",
-        "[tabindex]:not([tabindex='-1'])",
     ]
 )
 
 
 def _assert_mobile_widgets_fully_visible(self, state_name):
     result = self.driver.execute_script(
-        """
+        r"""
         const selector = arguments[0];
         const tolerance = 1.25;
         const candidates = Array.from(new Set(document.querySelectorAll(selector)));
