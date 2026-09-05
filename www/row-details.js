@@ -74,13 +74,8 @@ rowInteractionStyle.textContent = `
   }
 
   .journey-detail-stop i::after {
-    height: 38px !important;
+    height: var(--journey-connector-height, 38px) !important;
     background: var(--journey-line-color, #2563eb) !important;
-  }
-
-  .journey-detail-stop.transfer i {
-    border-color: #a16207 !important;
-    background: #fff8df !important;
   }
 
   .journey-detail-stop strong {
@@ -100,9 +95,47 @@ rowInteractionStyle.textContent = `
     color: #44515b;
   }
 
-  .journey-detail-transfer {
+  .journey-detail-transfer-edge {
+    min-height: 36px !important;
     color: #8a6514;
+  }
+
+  .journey-detail-transfer-edge > span {
+    padding-top: 3px;
+    color: #8a6514;
+    font-size: 10px;
     font-weight: 800;
+  }
+
+  .journey-detail-transfer-edge i {
+    width: 10px !important;
+    height: 10px !important;
+    margin-top: 3px !important;
+    border: 2px solid #a16207 !important;
+    border-radius: 50% !important;
+    background: #a16207 !important;
+    box-shadow: 0 0 0 2px #fff8df;
+  }
+
+  .journey-detail-transfer-edge i::after {
+    top: 8px !important;
+    width: 2px !important;
+    height: var(--journey-connector-height, 24px) !important;
+    border: 0 !important;
+    background: var(--journey-line-color, #2563eb) !important;
+  }
+
+  .journey-detail-transfer-edge strong {
+    display: block;
+    padding-top: 1px;
+    color: #805d11;
+    font-size: 11px;
+    font-weight: 850;
+  }
+
+  .journey-detail-transfer-edge .journey-detail-note {
+    margin-top: 1px;
+    color: #8a6514;
   }
 
   @media (max-width: 560px) {
@@ -116,6 +149,7 @@ rowInteractionStyle.textContent = `
 document.head.append(rowInteractionStyle);
 
 let activeRow = null;
+let detailResizeObserver = null;
 
 function decodeLeg(bar) {
   if (!bar?.dataset.detail) return null;
@@ -192,8 +226,8 @@ function rowJourneyData(row) {
   return { legs, duration };
 }
 
-function buildJourneyNodes(data) {
-  const nodes = [];
+function buildJourneyItems(data) {
+  const items = [];
 
   data.legs.forEach((entry, legIndex) => {
     const { leg, color } = entry;
@@ -203,34 +237,38 @@ function buildJourneyNodes(data) {
       const station = String(stop.stop_name || "—");
       const isFirstStop = stopIndex === 0;
       const isLastStop = stopIndex === stops.length - 1;
-      const previousNode = nodes.at(-1);
+      const previousItem = items.at(-1);
 
-      if (legIndex > 0 && isFirstStop && previousNode?.station === station) {
+      if (legIndex > 0 && isFirstStop && previousItem?.station === station && !previousItem.isTransferEdge) {
         const previousLeg = data.legs[legIndex - 1].leg;
         const wait = transferMinutes(previousLeg, leg);
-        previousNode.departureTime = stop.departure_time || leg.departure_time || previousNode.departureTime;
-        previousNode.isTransfer = true;
-        previousNode.transferWait = wait;
-        previousNode.nextService = serviceLabel(leg);
-        previousNode.lineColor = color;
-        return;
+
+        // Keep the arrival station as its own node, then insert the transfer
+        // edge. The current stop is still added below as the departure node
+        // for the next train, so an interchange appears on both sides.
+        previousItem.lineColor = "#a16207";
+        items.push({
+          isTransferEdge: true,
+          transferWait: wait,
+          lineColor: color,
+        });
       }
 
-      nodes.push({
+      items.push({
+        isTransferEdge: false,
         station,
-        arrivalTime: stop.arrival_time || (isLastStop ? leg.arrival_time : ""),
-        departureTime: stop.departure_time || (isFirstStop ? leg.departure_time : ""),
-        isTransfer: false,
-        transferWait: null,
+        // A journey leg starts at departure and ends at arrival. Ignore any
+        // through-service times outside the selected leg at those endpoints.
+        arrivalTime: isFirstStop ? "" : (stop.arrival_time || (isLastStop ? leg.arrival_time : "")),
+        departureTime: isLastStop && !isFirstStop ? "" : (stop.departure_time || (isFirstStop ? leg.departure_time : "")),
         service: isFirstStop ? serviceLabel(leg) : "",
-        nextService: "",
         nodeColor: color,
         lineColor: color,
       });
     });
   });
 
-  return nodes;
+  return items;
 }
 
 function nodeTime(node) {
@@ -241,28 +279,57 @@ function nodeTime(node) {
 }
 
 function nodeNote(node) {
-  if (node.isTransfer) {
-    const wait = Number.isFinite(node.transferWait) ? `${node.transferWait} min` : "change";
-    const next = node.nextService ? ` · ${escapeText(node.nextService)}` : "";
-    return `<span class="journey-detail-note journey-detail-transfer">Change ${escapeText(wait)}${next}</span>`;
-  }
   if (node.service) {
     return `<span class="journey-detail-note journey-detail-service">${escapeText(node.service)}</span>`;
   }
   return "";
 }
 
-function journeyStopsHtml(nodes) {
-  return nodes.map((node) => `
-    <div class="detail-stop journey-detail-stop${node.isTransfer ? " transfer" : ""}" style="--journey-node-color:${escapeText(node.nodeColor)};--journey-line-color:${escapeText(node.lineColor)}">
-      <span>${escapeText(nodeTime(node))}</span>
+function transferEdgeHtml(edge) {
+  const wait = Number.isFinite(edge.transferWait) ? `${edge.transferWait} min` : "Change";
+
+  return `
+    <div class="detail-stop journey-detail-transfer-edge" style="--journey-line-color:${escapeText(edge.lineColor)}">
+      <span>${escapeText(wait)}</span>
       <i aria-hidden="true"></i>
       <div>
-        <strong>${escapeText(node.station)}</strong>
-        ${nodeNote(node)}
+        <strong>Transfer</strong>
       </div>
     </div>
-  `).join("");
+  `;
+}
+
+function journeyStopsHtml(items) {
+  return items.map((item) => {
+    if (item.isTransferEdge) return transferEdgeHtml(item);
+    return `
+      <div class="detail-stop journey-detail-stop" style="--journey-node-color:${escapeText(item.nodeColor)};--journey-line-color:${escapeText(item.lineColor)}">
+        <span>${escapeText(nodeTime(item))}</span>
+        <i aria-hidden="true"></i>
+        <div>
+          <strong>${escapeText(item.station)}</strong>
+          ${nodeNote(item)}
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function syncJourneyConnectorHeights() {
+  if (!detailFrame?.classList.contains("journey-detail-frame")) return;
+  const graphRows = Array.from(detailFrame.querySelectorAll(".journey-detail-stop, .journey-detail-transfer-edge"));
+  graphRows.forEach((row, index) => {
+    const marker = row.querySelector("i");
+    const nextMarker = graphRows[index + 1]?.querySelector("i");
+    if (!marker || !nextMarker) return;
+    const markerRect = marker.getBoundingClientRect();
+    const nextRect = nextMarker.getBoundingClientRect();
+    const connectorStart = row.classList.contains("journey-detail-transfer-edge")
+      ? markerRect.bottom
+      : markerRect.top + 10;
+    const connectorEnd = nextMarker.getBoundingClientRect().top + (nextRect.height / 2);
+    row.style.setProperty("--journey-connector-height", `${Math.max(0, connectorEnd - connectorStart)}px`);
+  });
 }
 
 function clearJourneySelection() {
@@ -272,6 +339,8 @@ function clearJourneySelection() {
   }
   activeRow = null;
   detailFrame?.classList.remove("journey-detail-frame");
+  detailResizeObserver?.disconnect();
+  detailResizeObserver = null;
 }
 
 function positionJourneyFrame(row) {
@@ -293,8 +362,8 @@ function showJourneyGraph(row) {
   const data = rowJourneyData(row);
   if (!data) return;
 
-  const nodes = buildJourneyNodes(data);
-  if (!nodes.length) return;
+  const items = buildJourneyItems(data);
+  if (!items.length) return;
 
   const firstLeg = data.legs[0].leg;
   const lastLeg = data.legs.at(-1).leg;
@@ -316,12 +385,19 @@ function showJourneyGraph(row) {
       <span>${transferCount ? `${transferCount} change${transferCount === 1 ? "" : "s"}` : "Direct journey"}</span>
     </div>
     <div class="detail-stops journey-detail-stops" aria-label="Full journey graph">
-      ${journeyStopsHtml(nodes)}
+      ${journeyStopsHtml(items)}
     </div>
   `;
   detailFrame.hidden = false;
   detailLayer.hidden = false;
   positionJourneyFrame(row);
+  requestAnimationFrame(syncJourneyConnectorHeights);
+
+  detailResizeObserver?.disconnect();
+  if (typeof ResizeObserver === "function") {
+    detailResizeObserver = new ResizeObserver(() => requestAnimationFrame(syncJourneyConnectorHeights));
+    detailResizeObserver.observe(detailFrame);
+  }
 }
 
 function makeRowsInteractive() {

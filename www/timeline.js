@@ -1,3 +1,51 @@
+const timelineTimeRangeStyle = document.createElement("style");
+timelineTimeRangeStyle.textContent = `
+  .timeline-label-main {
+    grid-template-columns: 106px minmax(0, 1fr) max-content;
+    gap: 8px;
+  }
+
+  .timeline-label-time {
+    display: inline-flex;
+    align-items: baseline;
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  .timeline-label-departure {
+    color: #1c2730;
+    font-weight: 900;
+  }
+
+  .timeline-label-time-arrow {
+    margin: 0 4px;
+    color: #a0a7ac;
+    font-size: 11px;
+    font-weight: 650;
+  }
+
+  .timeline-label-arrival {
+    color: #5f6973;
+    font-weight: 750;
+  }
+
+  .timeline-label-via {
+    margin-left: 114px;
+  }
+
+  @media (max-width: 900px) {
+    .timeline-label-main {
+      grid-template-columns: 102px minmax(0, 1fr) max-content;
+      gap: 6px;
+    }
+
+    .timeline-label-via {
+      margin-left: 108px;
+    }
+  }
+`;
+document.head.append(timelineTimeRangeStyle);
+
 export function createTimeline({
   AUTO_REFRESH_DELAY_MS,
   TRAIN_TYPE_COLORS,
@@ -35,9 +83,17 @@ export function createTimeline({
     const matched = highlights.size > 0 && Array.from(highlights).every((station) => stations.has(station));
     const hasStarredStation = highlights.size > 0 && Array.from(highlights).some((station) => stations.has(station));
     const via = names.slice(1, -1);
+    const departureTime = clockLabel(itinerary.departure_minutes);
+    const lastLeg = (itinerary.legs || []).at(-1);
+    const arrivalMinutes = Number(itinerary.arrival_minutes ?? lastLeg?.arrival_minutes);
+    const arrivalTime = Number.isFinite(arrivalMinutes) ? clockLabel(arrivalMinutes) : "—";
     return `
       <span class="timeline-label-main${matched ? " highlighted" : ""}">
-        <span class="timeline-label-time">${clockLabel(itinerary.departure_minutes)}</span>
+        <span class="timeline-label-time" aria-label="Departs ${escapeHtml(departureTime)}, arrives ${escapeHtml(arrivalTime)}">
+          <strong class="timeline-label-departure">${escapeHtml(departureTime)}</strong>
+          <span class="timeline-label-time-arrow" aria-hidden="true">→</span>
+          <span class="timeline-label-arrival">${escapeHtml(arrivalTime)}</span>
+        </span>
         <span class="timeline-label-route"${hasStarredStation ? ' style="font-weight:800"' : ""}>${escapeHtml(names[0])} → ${escapeHtml(names.at(-1))}</span>
         <span class="timeline-label-duration" style="color:${durationColor}">(<strong>${escapeHtml(duration)}</strong>)</span>
       </span>

@@ -6,16 +6,25 @@
     <title>Train Route Explorer</title>
     <link rel="stylesheet" href="./style.css" />
     <link rel="stylesheet" href="./controls.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "./app.js?v=0.16": "./app.js?v=0.23",
+          "./journey-detail-style.js?v=0.19": "./journey-detail-style.js?v=0.24",
+          "./timeline.js": "./timeline.js?v=0.23"
+        }
+      }
+    </script>
   </head>
   <body>
     <header class="app-header">
-      <a class="brand" href="./" aria-label="Train Route Explorer home">
+      <div class="brand">
         <span class="brand-rail" aria-hidden="true"><i></i><i></i></span>
         <span>
-          <strong>Train Route Explorer</strong>
+          <strong>Train Route Explorer <span class="app-version" style="margin-left:4px;color:#9aa09f;font-size:9px;font-weight:600;letter-spacing:0;vertical-align:baseline;">v0.24</span></strong>
           <small>working timetable</small>
         </span>
-      </a>
+      </div>
       <div class="header-tools">
         <div id="cache-status" class="status idle">
           <span class="status-dot" aria-hidden="true"></span>
@@ -30,7 +39,10 @@
       <strong>Train Route Explorer</strong>
       <p>Explore SNCF timetable options as a visual day chart. Route computation runs locally in your browser from GTFS data, including transfers and service filtering.</p>
       <p>Your route, date, highlights, and train-type configuration are saved in this browser and restored when you return.</p>
-      <a href="./strategy.html">Technical white paper ↗</a>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">
+        <a href="./strategy.html">Technical white paper ↗</a>
+        <a href="https://github.com/bbodin-assistant/train-route-explorer" target="_blank" rel="noreferrer">GitHub repository ↗</a>
+      </div>
     </div>
 
     <main>
@@ -47,7 +59,7 @@
               <label class="visually-hidden" for="day-calendar">Day</label>
               <input id="day-calendar" type="date" disabled />
               <button id="today-button" type="button" disabled>Today</button>
-              <button id="next-day-button" class="day-arrow" type="button" aria-label="Next service day" title="Next service day" disabled>→</button>
+              <button id="next-day-button" type="button" class="day-arrow" aria-label="Next service day" title="Next service day" disabled>→</button>
             </div>
 
             <div class="toolbar-menus">
@@ -56,8 +68,7 @@
                 <div class="drawer-panel route-settings-panel">
                   <div class="drawer-heading">
                     <div>
-                      <span class="drawer-kicker">Route definition</span>
-                      <h2>Stations & constraints</h2>
+                      <h2 style="font-size: 14px;">Journey options</h2>
                     </div>
                     <span class="drawer-hint">★ marks preferred stations</span>
                   </div>
@@ -69,7 +80,11 @@
                       <div id="config-local-origins" class="station-checklist"></div>
                     </fieldset>
                     <fieldset class="station-picker" data-role="connection_stations">
-                      <legend>Via / transfer stations</legend>
+                      <legend>Via stations</legend>
+                      <div id="via-mode-switch" class="via-mode-switch" role="group" aria-label="Via mode">
+                        <button type="button" data-via-mode="one_of" aria-pressed="true" title="Pass through at least one selected Via station; transfers may occur anywhere">one of</button>
+                        <button type="button" data-via-mode="only" aria-pressed="false" title="Pass through at least one selected Via station; all transfers must occur at selected Via stations">only</button>
+                      </div>
                       <input class="station-filter" type="search" placeholder="Filter stations" data-role="connection_stations" />
                       <div id="config-connection-stations" class="station-checklist"></div>
                     </fieldset>
@@ -110,8 +125,9 @@
                     <label>
                       Maximum journey duration
                       <span class="input-with-unit">
-                        <input id="config-max-duration" type="number" min="0" step="1" aria-describedby="max-duration-unit" />
-                        <span id="max-duration-unit" class="input-unit">minutes</span>
+                        <input id="config-max-duration" type="hidden" />
+                        <input id="config-max-duration-hours" type="number" min="0" step="0.5" aria-describedby="max-duration-unit" />
+                        <span id="max-duration-unit" class="input-unit">hours</span>
                       </span>
                     </label>
                   </section>
@@ -172,13 +188,21 @@
     <div id="train-detail-dismiss-layer" hidden></div>
     <aside id="train-detail-frame" hidden></aside>
 
-    <script type="module" src="./app.js"></script>
-    <script type="module" src="./layout.js"></script>
-    <script type="module" src="./panels.js"></script>
+    <script type="module" src="./app.js?v=0.23"></script>
+    <script type="module" src="./layout.js?v=0.19"></script>
+    <script type="module" src="./panels.js?v=0.19"></script>
     <script type="module" src="./sorting.js?grouped-sorting=2"></script>
-    <script type="module" src="./row-details.js"></script>
-    <script type="module" src="./switch-toggle.js"></script>
+    <script type="module" src="./row-details.js?v=0.11"></script>
+    <script type="module" src="./switch-toggle.js?v=0.3"></script>
     <script type="module" src="./legend-config.js"></script>
-    <script type="module" src="./station-actions.js"></script>
+    <script type="module" src="./station-actions.js?v=0.18"></script>
+    <script type="module" src="./station-filter-actions.js?v=0.18"></script>
+    <script type="module" src="./settings-actions.js?v=0.18"></script>
+    <script type="module" src="./settings-layout.js?v=0.19"></script>
+    <script type="module" src="./via-mode.js?v=0.16"></script>
+    <script type="module" src="./journey-detail-style.js?v=0.24"></script>
+    <script type="module" src="./duration-hours.js?v=0.15"></script>
+    <script type="module" src="./ui-polish.js?v=0.20"></script>
+    <script type="module" src="./route-loop-guard.js?v=0.22"></script>
   </body>
 </html>

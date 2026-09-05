@@ -55,7 +55,49 @@ fn transfers_from_legs(legs: &[Leg]) -> Vec<Transfer> {
         .collect()
 }
 
+fn itinerary_revisits_station(legs: &[Leg]) -> bool {
+    let mut seen = HashSet::new();
+    let mut previous_stop: Option<String> = None;
+
+    for leg in legs {
+        if leg.path.is_empty() {
+            for (index, station) in [leg.departure_stop.as_str(), leg.destination_stop.as_str()]
+                .into_iter()
+                .enumerate()
+            {
+                if index == 0 && previous_stop.as_deref() == Some(station) {
+                    continue;
+                }
+                if !seen.insert(station.to_string()) {
+                    return true;
+                }
+                previous_stop = Some(station.to_string());
+            }
+            continue;
+        }
+
+        for (index, stop) in leg.path.iter().enumerate() {
+            let station = stop.stop_name.as_str();
+            // A transfer station is represented as the final stop of one leg
+            // and the first stop of the next. That adjacent boundary duplicate
+            // is expected; any later occurrence means the route has looped.
+            if index == 0 && previous_stop.as_deref() == Some(station) {
+                continue;
+            }
+            if !seen.insert(station.to_string()) {
+                return true;
+            }
+            previous_stop = Some(station.to_string());
+        }
+    }
+
+    false
+}
+
 fn itinerary_record(legs: Vec<Leg>, selected_day: &str, direction: &str, max_duration: i32) -> Option<Itinerary> {
+    if itinerary_revisits_station(&legs) {
+        return None;
+    }
     let first = legs.first()?;
     let last = legs.last()?;
     let total_duration = last.arrival_minutes - first.departure_minutes;
@@ -147,7 +189,7 @@ fn sort_and_dedupe_itineraries(itineraries: &mut Vec<Itinerary>) {
     });
 }
 
-pub(crate) fn build_itineraries(
+fn build_itineraries_with_progress(
     direct_segments: Vec<Segment>,
     first_leg_segments: Vec<Segment>,
     transfer_segments: Vec<Segment>,
@@ -158,21 +200,27 @@ pub(crate) fn build_itineraries(
     selected_day: &str,
     direction: &str,
     request: &RouteRequest,
+    on_work_unit: &mut dyn FnMut(),
 ) -> Vec<Itinerary> {
     let min_transfer = request.min_transfer_minutes.max(0);
     let max_transfer = request.max_transfer_minutes.max(min_transfer);
     let max_duration = request.max_journey_duration_minutes.max(0);
     let max_transfers = request.max_transfer_count;
     let mut records = Vec::new();
-    let first_leg_segments = unrestricted_transfers
-        .map(|index| index.starting_segments(unrestricted_origins))
-        .unwrap_or(first_leg_segments);
+    let first_leg_segments = if first_leg_segments.is_empty() {
+        unrestricted_transfers
+            .map(|index| index.starting_segments(unrestricted_origins))
+            .unwrap_or_default()
+    } else {
+        first_leg_segments
+    };
     let unrestricted_destination_set = unrestricted_destinations.iter().cloned().collect::<HashSet<_>>();
 
     for direct in direct_segments {
         if let Some(record) = itinerary_record(vec![segment_to_leg(&direct)], selected_day, direction, max_duration) {
             records.push(record);
         }
+        on_work_unit();
     }
 
     let mut final_by_departure: HashMap<String, Vec<Segment>> = HashMap::new();
@@ -304,6 +352,7 @@ pub(crate) fn build_itineraries(
                 max_duration,
                 max_transfers,
             );
+            on_work_unit();
             if records.len() >= MAX_ITINERARY_RECORDS {
                 break;
             }
@@ -314,13 +363,46 @@ pub(crate) fn build_itineraries(
     records
 }
 
+#[cfg(test)]
+pub(crate) fn build_itineraries(
+    direct_segments: Vec<Segment>,
+    first_leg_segments: Vec<Segment>,
+    transfer_segments: Vec<Segment>,
+    unrestricted_transfers: Option<&UnrestrictedTransferIndex<'_>>,
+    unrestricted_origins: &[String],
+    unrestricted_destinations: &[String],
+    final_leg_segments: Vec<Segment>,
+    selected_day: &str,
+    direction: &str,
+    request: &RouteRequest,
+) -> Vec<Itinerary> {
+    let mut noop = || {};
+    build_itineraries_with_progress(
+        direct_segments,
+        first_leg_segments,
+        transfer_segments,
+        unrestricted_transfers,
+        unrestricted_origins,
+        unrestricted_destinations,
+        final_leg_segments,
+        selected_day,
+        direction,
+        request,
+        &mut noop,
+    )
+}
 
-pub(crate) fn routes_for_day_data(context: &RouteContext, request: &RouteRequest) -> Result<RouteResult, String> {
+pub(crate) fn routes_for_day_data_with_progress(
+    context: &RouteContext,
+    request: &RouteRequest,
+    progress: &mut dyn FnMut(usize, usize),
+) -> Result<RouteResult, String> {
     let selected_day = request
         .selected_day
         .clone()
         .or_else(|| context.available_days.first().cloned());
     let Some(day) = selected_day.clone() else {
+        progress(1, 1);
         return Ok(RouteResult {
             selected_day: None,
             outward: Vec::new(),
@@ -332,30 +414,68 @@ pub(crate) fn routes_for_day_data(context: &RouteContext, request: &RouteRequest
     let unrestricted_transfers = (!unrestricted_transfer_trips.is_empty())
         .then(|| UnrestrictedTransferIndex::new(&unrestricted_transfer_trips, &active_services));
 
-    let outward = build_itineraries(
-        active_segments(&context.local_to_side_b, &active_services),
-        active_segments(&context.local_to_connection, &active_services),
-        active_segments(&context.connection_to_connection, &active_services),
+    let outward_direct = active_segments(&context.local_to_side_b, &active_services);
+    let outward_first = unrestricted_transfers
+        .as_ref()
+        .map(|index| index.starting_segments(&context.unrestricted_origins))
+        .unwrap_or_else(|| active_segments(&context.local_to_connection, &active_services));
+    let outward_transfer = active_segments(&context.connection_to_connection, &active_services);
+    let outward_final = active_segments(&context.connection_to_side_b, &active_services);
+
+    let return_direct = active_segments(&context.side_b_to_local, &active_services);
+    let return_first = unrestricted_transfers
+        .as_ref()
+        .map(|index| index.starting_segments(&context.unrestricted_destinations))
+        .unwrap_or_else(|| active_segments(&context.side_b_to_connection, &active_services));
+    let return_transfer = active_segments(&context.connection_to_connection, &active_services);
+    let return_final = active_segments(&context.connection_to_local, &active_services);
+
+    let transfer_units = if request.max_transfer_count > 0 {
+        outward_first.len() + return_first.len()
+    } else {
+        0
+    };
+    let total_work = (outward_direct.len() + return_direct.len() + transfer_units).max(1);
+    let mut completed_work = 0usize;
+    progress(0, total_work);
+
+    let mut completed_unit = || {
+        completed_work = completed_work.saturating_add(1).min(total_work);
+        progress(completed_work, total_work);
+    };
+
+    let outward = build_itineraries_with_progress(
+        outward_direct,
+        outward_first,
+        outward_transfer,
         unrestricted_transfers.as_ref(),
         &context.unrestricted_origins,
         &context.unrestricted_destinations,
-        active_segments(&context.connection_to_side_b, &active_services),
+        outward_final,
         &day,
         "outward",
         request,
+        &mut completed_unit,
     );
-    let returns = build_itineraries(
-        active_segments(&context.side_b_to_local, &active_services),
-        active_segments(&context.side_b_to_connection, &active_services),
-        active_segments(&context.connection_to_connection, &active_services),
+    let returns = build_itineraries_with_progress(
+        return_direct,
+        return_first,
+        return_transfer,
         unrestricted_transfers.as_ref(),
         &context.unrestricted_destinations,
         &context.unrestricted_origins,
-        active_segments(&context.connection_to_local, &active_services),
+        return_final,
         &day,
         "return",
         request,
+        &mut completed_unit,
     );
+
+    drop(completed_unit);
+    if completed_work < total_work {
+        progress(total_work, total_work);
+    }
+
     Ok(RouteResult {
         selected_day: Some(day),
         outward,
@@ -363,3 +483,84 @@ pub(crate) fn routes_for_day_data(context: &RouteContext, request: &RouteRequest
     })
 }
 
+pub(crate) fn routes_for_day_data(context: &RouteContext, request: &RouteRequest) -> Result<RouteResult, String> {
+    let mut noop = |_: usize, _: usize| {};
+    routes_for_day_data_with_progress(context, request, &mut noop)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::StopPoint;
+
+    fn time_label(minutes: i32) -> String {
+        format!("{:02}:{:02}:00", minutes / 60, minutes % 60)
+    }
+
+    fn stop(name: &str, minutes: i32) -> StopPoint {
+        StopPoint {
+            stop_name: name.to_string(),
+            arrival_time: time_label(minutes),
+            departure_time: time_label(minutes),
+            arrival_minutes: minutes,
+            departure_minutes: minutes,
+            lat: 0.0,
+            lon: 0.0,
+            in_segment: true,
+        }
+    }
+
+    fn leg(trip_id: &str, stops: &[(&str, i32)]) -> Leg {
+        let path = stops
+            .iter()
+            .map(|(name, minutes)| stop(name, *minutes))
+            .collect::<Vec<_>>();
+        let first = path.first().expect("leg needs a departure stop");
+        let last = path.last().expect("leg needs a destination stop");
+        Leg {
+            trip_id: trip_id.to_string(),
+            service_id: "service".to_string(),
+            route_id: "route".to_string(),
+            route_name: "route".to_string(),
+            train_type: "TER".to_string(),
+            train_number: trip_id.to_string(),
+            departure_stop: first.stop_name.clone(),
+            destination_stop: last.stop_name.clone(),
+            departure_time: first.departure_time.clone(),
+            arrival_time: last.arrival_time.clone(),
+            departure_minutes: first.departure_minutes,
+            arrival_minutes: last.arrival_minutes,
+            journey_path: path.clone(),
+            path,
+        }
+    }
+
+    #[test]
+    fn rejects_itinerary_that_passes_destination_then_returns_to_it() {
+        let legs = vec![
+            leg("7669", &[("Massy TGV", 492), ("Angoulême", 622)]),
+            leg(
+                "L16",
+                &[
+                    ("Angoulême", 638),
+                    ("Saintes", 699),
+                    ("Saujon", 723),
+                    ("Royan", 732),
+                ],
+            ),
+            leg("L17", &[("Royan", 752), ("Saujon", 759)]),
+        ];
+
+        assert!(itinerary_record(legs, "2026-09-01", "return", 1_440).is_none());
+    }
+
+    #[test]
+    fn allows_normal_transfer_station_boundary() {
+        let legs = vec![
+            leg("7669", &[("Massy TGV", 492), ("Angoulême", 622)]),
+            leg("L16", &[("Angoulême", 638), ("Saintes", 699), ("Saujon", 723)]),
+        ];
+
+        assert!(itinerary_record(legs, "2026-09-01", "return", 1_440).is_some());
+    }
+}

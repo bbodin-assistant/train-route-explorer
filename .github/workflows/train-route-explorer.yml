@@ -6,7 +6,24 @@ on:
       - main
   pull_request:
 
+concurrency:
+  group: train-route-explorer-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  routing-tests:
+    name: Rust routing tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Test routing core
+        run: cargo test
+
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -26,8 +43,31 @@ jobs:
       - name: Install wasm-pack
         run: cargo install wasm-pack --locked --version 0.15.0
 
+      - name: Compute GTFS cache key
+        id: gtfs-cache-key
+        run: echo "period=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore SNCF GTFS cache
+        id: gtfs-cache
+        uses: actions/cache@v4
+        with:
+          path: .ci-cache/sncf-gtfs.zip
+          key: sncf-gtfs-${{ runner.os }}-${{ steps.gtfs-cache-key.outputs.period }}
+
       - name: Download SNCF GTFS archive
-        run: make fetch-gtfs
+        if: steps.gtfs-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p .ci-cache
+          curl --fail --location --retry 3 \
+            "https://eu.ftp.opendatasoft.com/sncf/plandata/Export_OpenData_SNCF_GTFS_NewTripId.zip" \
+            --output .ci-cache/sncf-gtfs.zip
+          unzip -tq .ci-cache/sncf-gtfs.zip >/dev/null
+
+      - name: Stage bundled GTFS for site
+        run: |
+          test -s .ci-cache/sncf-gtfs.zip
+          mkdir -p www/data
+          cp .ci-cache/sncf-gtfs.zip www/data/gtfs.zip
 
       - name: Build static site
         run: make build
@@ -38,10 +78,57 @@ jobs:
           name: train-route-explorer-dist
           path: dist
 
+  selenium:
+    name: Selenium browser test
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download built site
+        uses: actions/download-artifact@v4
+        with:
+          name: train-route-explorer-dist
+          path: dist
+
+      - name: Install Selenium
+        run: python3 -m pip install -r tests/requirements.txt
+
+      - name: Test browser regressions
+        env:
+          TEST_URL: http://127.0.0.1:8080/
+          GTFS_FIXTURE_PATH: ${{ github.workspace }}/dist/data/gtfs.zip
+          ROUTE_DEDUPE_WAIT_SECONDS: "3"
+          SELENIUM_WAIT_SECONDS: "10"
+          SELENIUM_FILTER_WAIT_SECONDS: "3"
+        run: |
+          google-chrome --version
+          test -s "$GTFS_FIXTURE_PATH"
+          cp tests/route_guard_fixture.html dist/route-guard-test.html
+          python3 -m http.server 8080 --directory dist >/tmp/train-route-explorer-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          python3 tests/test_route_dedupe_selenium.py
+          python3 tests/test_real_browser_selenium.py
+          python3 tests/test_timeline_time_range_selenium.py
+          python3 tests/test_mobile_widget_visibility_selenium.py
+          python3 tests/test_trip_detail_mobile_selenium.py
+
   deploy:
     name: Deploy
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: build
+    needs:
+      - routing-tests
+      - build
+      - selenium
     runs-on: ubuntu-latest
     permissions:
       contents: read
