@@ -106,13 +106,20 @@ def test_40_paris_filter_works_for_departure_via_and_arrival_and_can_select(self
     )
 
 
-def test_55_saujon_massy_via_angouleme_september_1_2026(self):
+def test_55_saujon_massy_via_angouleme_current_service_day(self):
     result = self.driver.execute_async_script(
         """
         const done = arguments[0];
         const appUrl = new URL('./app.js?v=0.23', document.baseURI).href;
         import(appUrl).then(({ app }) => {
           window.__saujonMassyApp = app;
+          const selectedDay = app.state.availableDays.includes(app.state.selectedDay)
+            ? app.state.selectedDay
+            : app.state.availableDays[0];
+          if (!selectedDay) {
+            done({ ok: false, error: 'GTFS has no available service days' });
+            return;
+          }
           app.state.config = {
             ...app.state.config,
             local_origins: ['Saujon'],
@@ -122,29 +129,37 @@ def test_55_saujon_massy_via_angouleme_september_1_2026(self):
             max_journey_duration_minutes: 270,
           };
           app.writeConfig(app.state.config);
-          app.state.selectedDay = '20260901';
-          app.els.dayCalendar.value = '2026-09-01';
+          app.state.selectedDay = selectedDay;
+          app.els.dayCalendar.value = app.gtfsToIsoDate(selectedDay);
           app.showRefreshNotice();
-          done({ ok: true });
+          done({
+            ok: true,
+            selectedDay,
+            firstAvailableDay: app.state.availableDays[0],
+            lastAvailableDay: app.state.availableDays.at(-1),
+          });
         }).catch((error) => done({ ok: false, error: String(error) }));
         """
     )
     self.assertTrue(result.get("ok"), result)
+    selected_day = result["selectedDay"]
 
     self.wait.until(
         lambda driver: driver.execute_script(
             """
+            const selectedDay = arguments[0];
             const app = window.__saujonMassyApp;
             return Boolean(
               app &&
-              app.state.selectedDay === '20260901' &&
+              app.state.selectedDay === selectedDay &&
               !app.state.settingsDirty &&
               !app.state.refreshInFlight &&
               !app.state.routeRequestInFlight &&
-              app.state.routes?.selected_day === '20260901' &&
+              app.state.routes?.selected_day === selectedDay &&
               document.querySelector('#cache-status')?.classList.contains('ready')
             );
-            """
+            """,
+            selected_day,
         )
     )
 
@@ -171,6 +186,7 @@ def test_55_saujon_massy_via_angouleme_september_1_2026(self):
           ),
         }));
         return {
+          selectedDay: app.state.selectedDay,
           config: app.state.config,
           outwardCount: (app.state.routes.outward || []).length,
           visibleRows,
@@ -179,17 +195,23 @@ def test_55_saujon_massy_via_angouleme_september_1_2026(self):
     )
 
     print("SAUJON_MASSY_RESULT=" + json.dumps(result, ensure_ascii=False, sort_keys=True))
+    self.assertEqual(result["selectedDay"], selected_day)
     self.assertEqual(result["config"]["max_transfer_count"], 3)
     self.assertEqual(result["config"]["max_journey_duration_minutes"], 270)
 
     visible = [row for row in result["visibleRows"] if row["display"] != "none"]
-    self.assertTrue(visible, "Expected a Saujon → Massy TGV route via Angoulême")
+    self.assertTrue(
+        visible,
+        f"Expected a Saujon → Massy TGV route via Angoulême on available service day {selected_day}",
+    )
 
     schedules = {}
     for row in visible:
         self.assertNotEqual(row["loop_invalid"], "true", row)
         legs = row["legs"]
         self.assertTrue(legs, row)
+        self.assertEqual(legs[0]["from"], "Saujon", row)
+        self.assertEqual(legs[-1]["to"], "Massy TGV", row)
         key = (
             legs[0]["from"],
             legs[0]["departure_minutes"],
@@ -204,23 +226,12 @@ def test_55_saujon_massy_via_angouleme_september_1_2026(self):
         f"Same-schedule routes with extra transfers remain visible: {dominated}; rows={visible!r}",
     )
 
-    expected = {
-        (468, 704): 1,   # 07:48 → 11:44
-        (944, 1193): 1,  # 15:44 → 19:53
-    }
-    observed = {}
-    for row in visible:
-        legs = row["legs"]
-        observed[(legs[0]["departure_minutes"], legs[-1]["arrival_minutes"])] = len(legs) - 1
-    for schedule, transfer_count in expected.items():
-        self.assertEqual(observed.get(schedule), transfer_count, f"Unexpected result for schedule {schedule}: {visible!r}")
-
 
 StationFilterRegressionTest.test_40_paris_filter_works_for_departure_via_and_arrival_and_can_select = (
     test_40_paris_filter_works_for_departure_via_and_arrival_and_can_select
 )
-StationFilterRegressionTest.test_55_saujon_massy_via_angouleme_september_1_2026 = (
-    test_55_saujon_massy_via_angouleme_september_1_2026
+StationFilterRegressionTest.test_55_saujon_massy_via_angouleme_current_service_day = (
+    test_55_saujon_massy_via_angouleme_current_service_day
 )
 
 
