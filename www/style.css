@@ -367,6 +367,19 @@ main { width: 100%; padding: 0 14px 18px; }
   font-weight: 750;
 }
 
+.route-swap-button {
+  border: 1px solid #bcc3c7;
+  border-radius: 4px;
+  padding: 4px 0;
+  background: #f8f8f5;
+  color: #505b65;
+  cursor: pointer;
+  font: 700 10px ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+
+.route-swap-button:hover { background: #e9ece8; }
+.route-swap-button:focus-visible { outline: 2px solid #26313a; outline-offset: 2px; }
+
 .route-summary-arrow {
   color: #adb3b4;
   text-align: center;
