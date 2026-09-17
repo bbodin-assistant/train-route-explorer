@@ -75,7 +75,7 @@ layoutEnhancementStyle.textContent = `
   .route-summary {
     min-height: var(--route-summary-height) !important;
     display: grid !important;
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    grid-template-columns: minmax(0, 1fr) 30px minmax(0, 1fr) minmax(0, 1fr) !important;
     align-items: center !important;
     gap: 8px !important;
     padding: 5px 12px !important;
@@ -84,6 +84,7 @@ layoutEnhancementStyle.textContent = `
   }
 
   .route-summary-arrow { display: none !important; }
+  .route-swap-button { grid-column: 2; }
 
   .route-summary-item {
     position: relative;
