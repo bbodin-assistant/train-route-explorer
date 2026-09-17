@@ -72,7 +72,6 @@ function loadStoredSettings() {
       found: true,
       config: normalizeStoredConfig(saved.config),
       selectedTab: saved.selectedTab === "back" ? "back" : "out",
-      selectedDay: String(saved.selectedDay || "") || null,
       highlights: listSetting(saved.highlights),
     };
   } catch (error) {
@@ -90,7 +89,7 @@ const state = {
   highlights: storedSettings.highlights || [],
   highlightsInitialized: storedSettings.found,
   availableDays: [],
-  selectedDay: storedSettings.selectedDay || null,
+  selectedDay: null,
   settingsDirty: false,
   refreshInFlight: false,
   routeRequestInFlight: false,
@@ -173,7 +172,6 @@ function saveSettings() {
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
       config: state.config,
       selectedTab: state.selectedTab,
-      selectedDay: state.selectedDay,
       highlights: state.highlights,
     }));
   } catch (error) {
