@@ -169,6 +169,18 @@ async function main() {
     assert(await page.eval(`document.querySelector('[data-role="side_b_destinations"] legend')?.textContent`) === "Arrival stations", "Arrival station list should use arrival terminology");
     assert(await page.eval(`Array.from(document.querySelectorAll("#route-direction-tabs button")).map((button) => button.textContent).join("|")`) === "Departure → Arrival|Arrival → Departure", "Direction tabs should use departure and arrival terminology");
     assert(await page.eval(`document.querySelector("#highlight-stations") === null`), "Separate Highlights panel should not render");
+    assert(await page.eval(`document.querySelector("#swap-stations-button")?.textContent === "<->"`), "Exchange button should render in the route summary");
+    const beforeSwap = await page.eval(`JSON.stringify(JSON.parse(localStorage.getItem("train-route-explorer-settings-v1")).config)`);
+    await page.eval(`document.querySelector("#swap-stations-button").click()`);
+    const afterSwap = await page.eval(`JSON.stringify(JSON.parse(localStorage.getItem("train-route-explorer-settings-v1")).config)`);
+    const beforeConfig = JSON.parse(beforeSwap);
+    const afterConfig = JSON.parse(afterSwap);
+    assert(JSON.stringify(afterConfig.local_origins) === JSON.stringify(beforeConfig.side_b_destinations), "Exchange should set departure stations to the former arrival stations");
+    assert(JSON.stringify(afterConfig.side_b_destinations) === JSON.stringify(beforeConfig.local_origins), "Exchange should set arrival stations to the former departure stations");
+    assert(JSON.stringify(afterConfig.connection_stations) === JSON.stringify(beforeConfig.connection_stations), "Exchange should preserve via stations");
+    await page.eval(`document.querySelector("#swap-stations-button").click()`);
+    assert(await page.eval(`!Object.hasOwn(JSON.parse(localStorage.getItem("train-route-explorer-settings-v1")), "selectedDay")`), "Selected date should not be stored");
+
 
     if (process.env.SORTING_ONLY === "1") {
       await page.eval(`(() => {
