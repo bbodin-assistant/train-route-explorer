@@ -319,6 +319,13 @@ els.dayCalendar.addEventListener("change", () => {
   }
   requestRoutes();
 });
+document.querySelector("#swap-stations-button").addEventListener("click", () => {
+  [state.config.local_origins, state.config.side_b_destinations] =
+    [state.config.side_b_destinations, state.config.local_origins];
+  renderStationPickers(state.context?.station_names || [], state.config);
+  saveSettings();
+  showRefreshNotice();
+});
 els.todayBtn.addEventListener("click", () => {
   const today = todayGtfsDate();
   if (!state.availableDays.includes(today)) {
