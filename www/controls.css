@@ -434,8 +434,8 @@
   .route-summary-stop[data-route-role="local_origins"] { grid-area: depart; }
   .route-summary-stop[data-route-role="connection_stations"] { grid-area: via; }
   .route-summary-stop[data-route-role="side_b_destinations"] { grid-area: arrival; }
-  .route-summary-arrow:first-of-type { grid-area: arrow1; }
-  .route-summary-arrow:last-of-type { display: none; }
+  .route-swap-button { grid-area: arrow1; }
+  .route-summary-arrow { display: none; }
 
   .route-summary-stop { grid-template-columns: max-content minmax(0, 1fr); padding: 5px 7px; }
   .route-summary-stop::after { display: none; }
