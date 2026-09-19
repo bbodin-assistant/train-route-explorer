@@ -5,11 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Train Route Explorer</title>
     <link rel="stylesheet" href="./style.css?v=0.26" />
-    <link rel="stylesheet" href="./controls.css?v=0.28.3" />
+    <link rel="stylesheet" href="./controls.css?v=0.30" />
     <script type="importmap">
       {
         "imports": {
-          "./app.js?v=0.16": "./app.js?v=0.26",
+          "./app.js?v=0.16": "./app.js?v=0.30",
           "./journey-detail-style.js?v=0.19": "./journey-detail-style.js?v=0.26",
           "./timeline.js": "./timeline.js?v=0.23"
         }
@@ -21,7 +21,7 @@
       <div class="brand">
         <span class="brand-rail" aria-hidden="true"><i></i><i></i></span>
         <span>
-          <strong>Train Route Explorer <span class="app-version" style="margin-left:4px;color:#9aa09f;font-size:9px;font-weight:600;letter-spacing:0;vertical-align:baseline;">v0.29</span></strong>
+          <strong>Train Route Explorer <span class="app-version" style="margin-left:4px;color:#9aa09f;font-size:9px;font-weight:600;letter-spacing:0;vertical-align:baseline;">v0.30</span></strong>
           <small>working timetable</small>
         </span>
       </div>
@@ -137,6 +137,18 @@
                       </span>
                     </label>
                   </section>
+
+                  <section class="map-config-panel" aria-labelledby="map-style-label">
+                    <label for="config-map-style">
+                      <span id="map-style-label">Map style</span>
+                      <select id="config-map-style">
+                        <option value="standard">Standard</option>
+                        <option value="muted">Muted</option>
+                        <option value="monochrome">Monochrome</option>
+                        <option value="dark">Dark</option>
+                      </select>
+                    </label>
+                  </section>
                 </div>
               </details>
 
@@ -195,13 +207,13 @@
     <div id="train-detail-dismiss-layer" hidden></div>
     <aside id="train-detail-frame" hidden></aside>
 
-    <script type="module" src="./app.js?v=0.26"></script>
+    <script type="module" src="./app.js?v=0.30"></script>
     <script type="module" src="./layout.js?v=0.26.1"></script>
     <script type="module" src="./panels.js?v=0.19"></script>
     <script type="module" src="./sorting.js?grouped-sorting=2"></script>
     <script type="module" src="./row-details.js?v=0.26"></script>
     <script type="module" src="./switch-toggle.js?v=0.3"></script>
-    <script type="module" src="./route-map.js?v=0.29"></script>
+    <script type="module" src="./route-map.js?v=0.30"></script>
     <script type="module" src="./legend-config.js"></script>
     <script type="module" src="./station-actions.js?v=0.18"></script>
     <script type="module" src="./station-filter-actions.js?v=0.18"></script>

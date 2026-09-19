@@ -401,5 +401,181 @@ class MapButtonSeleniumTest(unittest.TestCase):
             self.driver.set_window_size(1440, 1000)
 
 
+    def test_z_desktop_mouse_drag_wheel_zoom_and_map_style(self):
+        self.driver.set_window_size(1440, 1000)
+        self.driver.get(TEST_URL)
+
+        setup = self.driver.execute_async_script(
+            """
+            const done = arguments[0];
+            const appUrl = document.querySelector('script[type="module"][src*="app.js"]')?.src;
+            if (!appUrl) {
+              done({ ok: false, error: 'App module script was not found' });
+              return;
+            }
+
+            import(appUrl).then(({ app }) => {
+              app.state.selectedTab = 'out';
+              app.state.config = {
+                ...app.state.config,
+                local_origins: ['Paris'],
+                connection_stations: [],
+                side_b_destinations: ['Bordeaux'],
+              };
+              app.state.routes = {
+                ...app.state.routes,
+                outward: [{
+                  legs: [{
+                    train_type: 'TGV INOUI',
+                    train_number: 'DESKTOP',
+                    path: [
+                      { stop_name: 'Paris', lat: 48.8566, lon: 2.3522 },
+                      { stop_name: 'Tours', lat: 47.3941, lon: 0.6848 },
+                      { stop_name: 'Bordeaux', lat: 44.8378, lon: -0.5792 },
+                    ],
+                  }],
+                }],
+                returns: [],
+              };
+              done({ ok: true });
+            }).catch((error) => done({ ok: false, error: String(error) }));
+            """
+        )
+        self.assertTrue(setup.get("ok"), setup)
+
+        map_button = self.wait.until(
+            EC.element_to_be_clickable(
+                (By.CSS_SELECTOR, '#route-view-tabs [data-view="map"]')
+            )
+        )
+        map_button.click()
+
+        self.wait.until(
+            lambda driver: driver.execute_script(
+                """
+                const svg = document.querySelector('#routes-map .route-map-canvas');
+                return Boolean(svg && svg.dataset.labelsLaidOut === 'true');
+                """
+            )
+        )
+
+        interaction = self.driver.execute_script(
+            """
+            const svg = document.querySelector('#routes-map .route-map-canvas');
+            return {
+              desktopPan: svg.dataset.desktopPan,
+              wheelZoom: svg.dataset.wheelZoom,
+              zoom: Number(svg.dataset.zoom || 1),
+              width: svg.viewBox.baseVal.width,
+            };
+            """
+        )
+        self.assertEqual(interaction["desktopPan"], "enabled")
+        self.assertEqual(interaction["wheelZoom"], "enabled")
+
+        zoomed = self.driver.execute_script(
+            """
+            const svg = document.querySelector('#routes-map .route-map-canvas');
+            const rect = svg.getBoundingClientRect();
+            const before = {
+              zoom: Number(svg.dataset.zoom || 1),
+              width: svg.viewBox.baseVal.width,
+            };
+            svg.dispatchEvent(new WheelEvent('wheel', {
+              bubbles: true,
+              cancelable: true,
+              clientX: rect.left + rect.width * 0.5,
+              clientY: rect.top + rect.height * 0.5,
+              deltaY: -700,
+              deltaMode: WheelEvent.DOM_DELTA_PIXEL,
+            }));
+            return {
+              before,
+              after: {
+                zoom: Number(svg.dataset.zoom || 1),
+                width: svg.viewBox.baseVal.width,
+              },
+            };
+            """
+        )
+        self.assertGreater(zoomed["after"]["zoom"], zoomed["before"]["zoom"], zoomed)
+        self.assertLess(zoomed["after"]["width"], zoomed["before"]["width"], zoomed)
+
+        panned = self.driver.execute_script(
+            """
+            const svg = document.querySelector('#routes-map .route-map-canvas');
+            const rect = svg.getBoundingClientRect();
+            const startX = rect.left + rect.width * 0.55;
+            const startY = rect.top + rect.height * 0.55;
+            const dispatch = (type, clientX, clientY) => {
+              svg.dispatchEvent(new PointerEvent(type, {
+                bubbles: true,
+                cancelable: true,
+                pointerId: 11,
+                pointerType: 'mouse',
+                button: 0,
+                buttons: type === 'pointerup' ? 0 : 1,
+                clientX,
+                clientY,
+              }));
+            };
+            const before = { x: svg.viewBox.baseVal.x, y: svg.viewBox.baseVal.y };
+            dispatch('pointerdown', startX, startY);
+            dispatch('pointermove', startX - 80, startY - 45);
+            dispatch('pointerup', startX - 80, startY - 45);
+            return {
+              before,
+              after: { x: svg.viewBox.baseVal.x, y: svg.viewBox.baseVal.y },
+              dragging: svg.dataset.dragging,
+            };
+            """
+        )
+        self.assertNotEqual(
+            (panned["before"]["x"], panned["before"]["y"]),
+            (panned["after"]["x"], panned["after"]["y"]),
+            panned,
+        )
+        self.assertEqual(panned["dragging"], "false")
+
+        style_result = self.driver.execute_script(
+            """
+            const select = document.querySelector('#config-map-style');
+            const map = document.querySelector('#routes-map');
+            const tile = map.querySelector('.route-map-tile');
+            if (!select || !tile) return { ok: false };
+            select.value = 'dark';
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            const stored = JSON.parse(
+              localStorage.getItem('train-route-explorer-settings-v1') || '{}'
+            );
+            return {
+              ok: true,
+              value: select.value,
+              mapStyle: map.dataset.mapStyle,
+              tileFilter: getComputedStyle(tile).filter,
+              storedMapStyle: stored.mapStyle,
+              insideSettings: Boolean(select.closest('.route-settings-panel')),
+            };
+            """
+        )
+        self.assertTrue(style_result.get("ok"), style_result)
+        self.assertEqual(style_result["value"], "dark")
+        self.assertEqual(style_result["mapStyle"], "dark")
+        self.assertEqual(style_result["storedMapStyle"], "dark")
+        self.assertTrue(style_result["insideSettings"])
+        self.assertNotEqual(style_result["tileFilter"], "none")
+
+        self.driver.refresh()
+        persisted_style = self.wait.until(
+            lambda driver: driver.execute_script(
+                """
+                const select = document.querySelector('#config-map-style');
+                return select?.value || '';
+                """
+            )
+        )
+        self.assertEqual(persisted_style, "dark")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

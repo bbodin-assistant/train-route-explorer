@@ -4,6 +4,7 @@ const timeView = document.querySelector("#routes-time-chart");
 const mapView = document.querySelector("#routes-map");
 const viewTabs = document.querySelector("#route-view-tabs");
 const directionTabs = document.querySelector("#route-direction-tabs");
+const mapStyleControl = document.querySelector("#config-map-style");
 const { state } = app;
 
 const MAP_WIDTH = 920;
@@ -26,6 +27,8 @@ const MAP_BOUNDS = {
   minLat: 41.0,
   maxLat: 51.6,
 };
+
+const MAP_STYLE_VALUES = new Set(["standard", "muted", "monochrome", "dark"]);
 
 const TRAIN_TYPE_COLORS = {
   "TGV INOUI": "#2563eb",
@@ -70,6 +73,23 @@ mapStyle.textContent = `
 
   .route-map-tile {
     pointer-events: none;
+    transition: filter 120ms ease, opacity 120ms ease;
+  }
+
+  .route-map-view[data-map-style="muted"] .route-map-tile {
+    filter: saturate(0.55) contrast(0.94) brightness(1.04);
+  }
+
+  .route-map-view[data-map-style="monochrome"] .route-map-tile {
+    filter: grayscale(1) contrast(0.96) brightness(1.05);
+  }
+
+  .route-map-view[data-map-style="dark"] {
+    background: #1d252b;
+  }
+
+  .route-map-view[data-map-style="dark"] .route-map-tile {
+    filter: invert(0.9) hue-rotate(180deg) saturate(0.55) brightness(0.72) contrast(0.95);
   }
 
   .route-map-route {
@@ -181,6 +201,16 @@ mapStyle.textContent = `
   .route-map-legend .departure { color: #2563eb; }
   .route-map-legend .via { color: #a16207; }
   .route-map-legend .arrival { color: #15803d; }
+
+  @media (min-width: 901px) {
+    .route-map-canvas {
+      cursor: grab;
+    }
+
+    .route-map-canvas[data-dragging="true"] {
+      cursor: grabbing;
+    }
+  }
 
   @media (max-width: 900px) {
     .route-map-view {
@@ -460,6 +490,18 @@ function scheduleLabelLayout() {
   labelLayoutFrame = requestAnimationFrame(layoutStationLabels);
 }
 
+function normalizedMapStyle(value) {
+  return MAP_STYLE_VALUES.has(value) ? value : "standard";
+}
+
+function applyMapStyle(svg, value = state.mapStyle) {
+  const style = normalizedMapStyle(value);
+  state.mapStyle = style;
+  mapView.dataset.mapStyle = style;
+  if (svg) svg.dataset.mapStyle = style;
+  if (mapStyleControl && mapStyleControl.value !== style) mapStyleControl.value = style;
+}
+
 function tileZoomForViewBox(viewBox) {
   const mapZoom = Math.max(1, zoomForViewBox(viewBox));
   return clamp(
@@ -587,6 +629,10 @@ function beginPinch(svg) {
   }
 
   const [first, second] = Array.from(activePointers.values());
+  if (first.pointerType !== "touch" || second.pointerType !== "touch") {
+    pinchGesture = null;
+    return;
+  }
   const distance = pointerDistance(first, second);
   if (!distance) return;
 
@@ -611,10 +657,20 @@ function installMapInteractions(svg) {
   pinchGesture = null;
   svg.dataset.pinchZoom = "enabled";
   svg.dataset.touchPan = "enabled";
+  svg.dataset.desktopPan = "enabled";
+  svg.dataset.wheelZoom = "enabled";
 
   svg.addEventListener("pointerdown", (event) => {
-    if (event.pointerType !== "touch" || window.innerWidth > 900) return;
-    activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    const isTouch = event.pointerType === "touch";
+    const isPrimaryMouse = event.pointerType === "mouse" && event.button === 0;
+    if (!isTouch && !isPrimaryMouse) return;
+
+    activePointers.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+      pointerType: event.pointerType,
+    });
+    svg.dataset.dragging = "true";
     try {
       svg.setPointerCapture(event.pointerId);
     } catch {
@@ -628,7 +684,11 @@ function installMapInteractions(svg) {
     const previous = activePointers.get(event.pointerId);
     if (!previous) return;
 
-    activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    activePointers.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+      pointerType: previous.pointerType,
+    });
 
     if (activePointers.size === 1) {
       const previousMapPoint = clientPointToMap(svg, previous.x, previous.y);
@@ -674,9 +734,40 @@ function installMapInteractions(svg) {
   const endPointer = (event) => {
     activePointers.delete(event.pointerId);
     if (activePointers.size < 2) pinchGesture = null;
+    if (!activePointers.size) svg.dataset.dragging = "false";
   };
   svg.addEventListener("pointerup", endPointer);
   svg.addEventListener("pointercancel", endPointer);
+
+  svg.addEventListener("wheel", (event) => {
+    if (window.innerWidth <= 900) return;
+
+    const viewBox = currentViewBox(svg);
+    const anchor = clientPointToMap(svg, event.clientX, event.clientY);
+    if (!anchor) return;
+
+    const deltaPixels = event.deltaMode === WheelEvent.DOM_DELTA_LINE
+      ? event.deltaY * 16
+      : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+        ? event.deltaY * window.innerHeight
+        : event.deltaY;
+    const targetZoom = Math.max(
+      MIN_MAP_ZOOM,
+      zoomForViewBox(viewBox) * Math.exp(-deltaPixels * 0.0015),
+    );
+    const width = MAP_WIDTH / targetZoom;
+    const height = MAP_HEIGHT / targetZoom;
+    const anchorFractionX = (anchor.x - viewBox.x) / viewBox.width;
+    const anchorFractionY = (anchor.y - viewBox.y) / viewBox.height;
+
+    setMapViewBox(svg, {
+      x: anchor.x - anchorFractionX * width,
+      y: anchor.y - anchorFractionY * height,
+      width,
+      height,
+    });
+    event.preventDefault();
+  }, { passive: false });
 
   setMapViewBox(svg, { x: 0, y: 0, width: MAP_WIDTH, height: MAP_HEIGHT });
 }
@@ -772,6 +863,7 @@ function renderMap() {
 
   const svg = mapView.querySelector(".route-map-canvas");
   if (svg) {
+    applyMapStyle(svg);
     installMapInteractions(svg);
     renderOsmTiles(svg);
   }
@@ -805,6 +897,14 @@ viewTabs?.addEventListener("click", (event) => {
 });
 
 directionTabs?.addEventListener("click", () => requestAnimationFrame(scheduleRender));
+
+mapStyleControl?.addEventListener("change", () => {
+  const svg = mapView?.querySelector(".route-map-canvas");
+  applyMapStyle(svg, mapStyleControl.value);
+  app.saveSettings();
+});
+
+applyMapStyle(mapView?.querySelector(".route-map-canvas"));
 
 if (timeView) {
   new MutationObserver(scheduleRender).observe(timeView, { childList: true, subtree: true });

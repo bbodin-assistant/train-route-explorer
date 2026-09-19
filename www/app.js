@@ -22,6 +22,8 @@ const DEFAULT_CONFIG = {
 };
 const SERVER_GTFS_URL = "./data/gtfs.zip";
 const SETTINGS_STORAGE_KEY = "train-route-explorer-settings-v1";
+const DEFAULT_MAP_STYLE = "standard";
+const MAP_STYLE_VALUES = new Set(["standard", "muted", "monochrome", "dark"]);
 const AUTO_REFRESH_DELAY_MS = 300;
 const ROUTE_DAY_COUNT = 1;
 const ROUTE_PROTOCOL_VERSION = 5;
@@ -48,6 +50,10 @@ function numericSetting(value, fallback, min = 0) {
   return Number.isFinite(number) ? Math.max(min, number) : fallback;
 }
 
+function mapStyleSetting(value) {
+  return MAP_STYLE_VALUES.has(value) ? value : DEFAULT_MAP_STYLE;
+}
+
 function normalizeStoredConfig(config = {}) {
   const minTransfer = numericSetting(config.min_transfer_minutes, DEFAULT_CONFIG.min_transfer_minutes);
   const maxTransfer = numericSetting(config.max_transfer_minutes, DEFAULT_CONFIG.max_transfer_minutes, minTransfer);
@@ -66,16 +72,27 @@ function normalizeStoredConfig(config = {}) {
 function loadStoredSettings() {
   try {
     const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
-    if (!raw) return { found: false, config: structuredClone(DEFAULT_CONFIG) };
+    if (!raw) {
+      return {
+        found: false,
+        config: structuredClone(DEFAULT_CONFIG),
+        mapStyle: DEFAULT_MAP_STYLE,
+      };
+    }
     const saved = JSON.parse(raw);
     return {
       found: true,
       config: normalizeStoredConfig(saved.config),
       selectedTab: saved.selectedTab === "back" ? "back" : "out",
       highlights: listSetting(saved.highlights),
+      mapStyle: mapStyleSetting(saved.mapStyle),
     };
   } catch (error) {
-    return { found: false, config: structuredClone(DEFAULT_CONFIG) };
+    return {
+      found: false,
+      config: structuredClone(DEFAULT_CONFIG),
+      mapStyle: DEFAULT_MAP_STYLE,
+    };
   }
 }
 
@@ -87,6 +104,7 @@ const state = {
   routes: { outward: [], returns: [], selected_day: null },
   selectedTab: storedSettings.selectedTab || "out",
   highlights: storedSettings.highlights || [],
+  mapStyle: storedSettings.mapStyle || DEFAULT_MAP_STYLE,
   highlightsInitialized: storedSettings.found,
   availableDays: [],
   selectedDay: null,
@@ -120,6 +138,7 @@ const els = {
   maxTransfer: $("#config-max-transfer"),
   maxTransferCount: $("#config-max-transfer-count"),
   maxDuration: $("#config-max-duration"),
+  mapStyle: $("#config-map-style"),
   dayCalendar: $("#day-calendar"),
   previousDayBtn: $("#previous-day-button"),
   todayBtn: $("#today-button"),
@@ -178,6 +197,7 @@ function saveSettings() {
       config: state.config,
       selectedTab: state.selectedTab,
       highlights: state.highlights,
+      mapStyle: state.mapStyle,
     }));
   } catch (error) {
     // Browser storage can be full or disabled; the app should still work for the current session.
@@ -190,6 +210,7 @@ function writeConfig(config) {
   els.maxTransfer.value = config.max_transfer_minutes;
   els.maxTransferCount.value = config.max_transfer_count;
   els.maxDuration.value = config.max_journey_duration_minutes;
+  if (els.mapStyle) els.mapStyle.value = mapStyleSetting(state.mapStyle);
 }
 
 function setStatus(message, progress = 0, tone = "loading") {
