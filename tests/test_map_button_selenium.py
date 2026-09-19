@@ -215,6 +215,40 @@ class MapButtonSeleniumTest(unittest.TestCase):
                     """
                 )
 
+            basemap = self.driver.execute_script(
+                """
+                const svg = document.querySelector('#routes-map .route-map-canvas');
+                const attribution = document.querySelector('#routes-map .route-map-attribution');
+                const tiles = Array.from(svg.querySelectorAll('.route-map-tile'));
+                return {
+                  provider: svg.dataset.tileProvider,
+                  tileZoom: Number(svg.dataset.tileZoom || 0),
+                  tileCount: tiles.length,
+                  tileUrls: tiles.map((tile) => tile.getAttribute('href') || ''),
+                  countryOutlineCount: svg.querySelectorAll('.route-map-country').length,
+                  attributionText: attribution?.textContent?.trim() || '',
+                  attributionHref: attribution?.href || '',
+                  attributionVisible: Boolean(
+                    attribution && attribution.getBoundingClientRect().width > 0
+                    && attribution.getBoundingClientRect().height > 0
+                  ),
+                };
+                """
+            )
+            self.assertEqual(basemap["provider"], "OpenStreetMap")
+            self.assertGreater(basemap["tileCount"], 0)
+            self.assertTrue(
+                all(url.startswith("https://tile.openstreetmap.org/") for url in basemap["tileUrls"]),
+                basemap,
+            )
+            self.assertEqual(basemap["countryOutlineCount"], 0)
+            self.assertTrue(basemap["attributionVisible"], basemap)
+            self.assertIn("OpenStreetMap contributors", basemap["attributionText"])
+            self.assertEqual(
+                basemap["attributionHref"],
+                "https://www.openstreetmap.org/copyright",
+            )
+
             before = label_metrics()
             self.assertEqual(before["totalLabels"], setup["stopCount"])
             self.assertGreater(before["visibleLabels"], 0)
@@ -280,6 +314,27 @@ class MapButtonSeleniumTest(unittest.TestCase):
                     """
                 )
             )
+
+            self.wait.until(
+                lambda driver: driver.execute_script(
+                    """
+                    const svg = document.querySelector('#routes-map .route-map-canvas');
+                    return Number(svg?.dataset.tileZoom || 0) > arguments[0];
+                    """,
+                    basemap["tileZoom"],
+                )
+            )
+            zoomed_basemap = self.driver.execute_script(
+                """
+                const svg = document.querySelector('#routes-map .route-map-canvas');
+                return {
+                  tileZoom: Number(svg.dataset.tileZoom || 0),
+                  tileCount: svg.querySelectorAll('.route-map-tile').length,
+                };
+                """
+            )
+            self.assertGreater(zoomed_basemap["tileZoom"], basemap["tileZoom"])
+            self.assertGreater(zoomed_basemap["tileCount"], 0)
 
             after = label_metrics()
             self.assertGreater(after["zoom"], 6)

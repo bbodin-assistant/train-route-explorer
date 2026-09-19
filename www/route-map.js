@@ -10,6 +10,9 @@ const MAP_WIDTH = 920;
 const MAP_HEIGHT = 620;
 const MAP_PADDING = 34;
 const MIN_MAP_ZOOM = 1;
+const OSM_TILE_BASE_ZOOM = 6;
+const OSM_TILE_MAX_ZOOM = 19;
+const OSM_TILE_URL = "https://tile.openstreetmap.org";
 const LABEL_PADDING = 2;
 const LABEL_SCREEN_FONT_SIZE = 13;
 const LABEL_SCREEN_STROKE_WIDTH = 2.5;
@@ -38,23 +41,6 @@ const TRAIN_TYPE_COLORS = {
   "Unknown": "#64748b",
 };
 
-const FRANCE_MAINLAND = [
-  [-4.8, 48.5], [-4.5, 48.1], [-3.5, 47.7], [-2.6, 47.5], [-2.1, 46.8],
-  [-1.2, 46.2], [-1.1, 45.6], [-1.3, 44.7], [-1.7, 43.5], [-1.4, 43.3],
-  [-0.7, 43.3], [0.4, 42.7], [1.7, 42.6], [3.1, 42.5], [3.3, 43.0],
-  [4.4, 43.4], [5.6, 43.1], [6.3, 43.1], [7.5, 43.7], [7.1, 44.4],
-  [6.7, 45.0], [6.8, 45.8], [7.0, 46.5], [6.1, 46.4], [6.0, 47.0],
-  [7.6, 47.6], [7.6, 48.5], [7.0, 49.1], [6.3, 49.5], [5.8, 49.5],
-  [4.8, 49.9], [3.8, 50.3], [2.5, 50.9], [1.6, 50.9], [1.3, 50.1],
-  [0.2, 49.5], [-1.5, 49.7], [-1.9, 49.1], [-1.6, 48.7], [-2.7, 48.8],
-  [-3.7, 48.7], [-4.8, 48.5],
-];
-
-const FRANCE_CORSICA = [
-  [8.55, 42.95], [9.35, 42.95], [9.5, 42.45], [9.35, 41.85],
-  [9.15, 41.35], [8.75, 41.45], [8.6, 42.05], [8.55, 42.95],
-];
-
 const mapStyle = document.createElement("style");
 mapStyle.textContent = `
   .route-map-view {
@@ -82,20 +68,18 @@ mapStyle.textContent = `
     min-height: 430px;
   }
 
-  .route-map-country {
-    fill: #fffef9;
-    stroke: #aeb8b1;
-    stroke-width: 1.5;
-    vector-effect: non-scaling-stroke;
+  .route-map-tile {
+    pointer-events: none;
   }
 
   .route-map-route {
     fill: none;
-    stroke-width: 3.2;
+    stroke-width: 4;
     stroke-linecap: round;
     stroke-linejoin: round;
-    opacity: 0.34;
+    opacity: 0.78;
     vector-effect: non-scaling-stroke;
+    filter: drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.95));
   }
 
   .route-map-station circle {
@@ -151,6 +135,27 @@ mapStyle.textContent = `
     font-size: 11px;
   }
 
+  .route-map-attribution {
+    position: absolute;
+    right: 6px;
+    bottom: 6px;
+    z-index: 3;
+    padding: 3px 5px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.88);
+    color: #3f4b54;
+    font-size: 9px;
+    font-weight: 650;
+    line-height: 1.2;
+    text-decoration: none;
+    backdrop-filter: blur(4px);
+  }
+
+  .route-map-attribution:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
   .route-map-legend {
     display: inline-flex;
     flex-wrap: wrap;
@@ -196,6 +201,7 @@ document.head.append(mapStyle);
 let viewMode = "time";
 let renderFrame = null;
 let labelLayoutFrame = null;
+let tileRenderFrame = null;
 const activePointers = new Map();
 let pinchGesture = null;
 
@@ -208,19 +214,53 @@ function escapeText(value) {
     .replaceAll("'", "&#039;");
 }
 
-function project(lon, lat) {
-  const usableWidth = MAP_WIDTH - MAP_PADDING * 2;
-  const usableHeight = MAP_HEIGHT - MAP_PADDING * 2;
-  const x = MAP_PADDING + ((lon - MAP_BOUNDS.minLon) / (MAP_BOUNDS.maxLon - MAP_BOUNDS.minLon)) * usableWidth;
-  const y = MAP_PADDING + ((MAP_BOUNDS.maxLat - lat) / (MAP_BOUNDS.maxLat - MAP_BOUNDS.minLat)) * usableHeight;
-  return { x, y };
+function lonLatToWorld(lon, lat) {
+  const clampedLat = clamp(Number(lat), -85.05112878, 85.05112878);
+  const longitude = Number(lon);
+  const latitudeRadians = clampedLat * Math.PI / 180;
+  const sinLatitude = Math.sin(latitudeRadians);
+  return {
+    x: (longitude + 180) / 360,
+    y: 0.5 - Math.log((1 + sinLatitude) / (1 - sinLatitude)) / (4 * Math.PI),
+  };
 }
 
-function countryPath(points) {
-  return points.map(([lon, lat], index) => {
-    const point = project(lon, lat);
-    return `${index ? "L" : "M"}${point.x.toFixed(1)},${point.y.toFixed(1)}`;
-  }).join(" ") + " Z";
+const MAP_WORLD_BOUNDS = (() => {
+  const northWest = lonLatToWorld(MAP_BOUNDS.minLon, MAP_BOUNDS.maxLat);
+  const southEast = lonLatToWorld(MAP_BOUNDS.maxLon, MAP_BOUNDS.minLat);
+  return {
+    minX: northWest.x,
+    maxX: southEast.x,
+    minY: northWest.y,
+    maxY: southEast.y,
+  };
+})();
+
+function projectWorld(worldX, worldY) {
+  const usableWidth = MAP_WIDTH - MAP_PADDING * 2;
+  const usableHeight = MAP_HEIGHT - MAP_PADDING * 2;
+  return {
+    x: MAP_PADDING
+      + ((worldX - MAP_WORLD_BOUNDS.minX) / (MAP_WORLD_BOUNDS.maxX - MAP_WORLD_BOUNDS.minX)) * usableWidth,
+    y: MAP_PADDING
+      + ((worldY - MAP_WORLD_BOUNDS.minY) / (MAP_WORLD_BOUNDS.maxY - MAP_WORLD_BOUNDS.minY)) * usableHeight,
+  };
+}
+
+function mapPointToWorld(x, y) {
+  const usableWidth = MAP_WIDTH - MAP_PADDING * 2;
+  const usableHeight = MAP_HEIGHT - MAP_PADDING * 2;
+  return {
+    x: MAP_WORLD_BOUNDS.minX
+      + ((x - MAP_PADDING) / usableWidth) * (MAP_WORLD_BOUNDS.maxX - MAP_WORLD_BOUNDS.minX),
+    y: MAP_WORLD_BOUNDS.minY
+      + ((y - MAP_PADDING) / usableHeight) * (MAP_WORLD_BOUNDS.maxY - MAP_WORLD_BOUNDS.minY),
+  };
+}
+
+function project(lon, lat) {
+  const world = lonLatToWorld(lon, lat);
+  return projectWorld(world.x, world.y);
 }
 
 function stopPoint(stop) {
@@ -420,6 +460,77 @@ function scheduleLabelLayout() {
   labelLayoutFrame = requestAnimationFrame(layoutStationLabels);
 }
 
+function tileZoomForViewBox(viewBox) {
+  const mapZoom = Math.max(1, zoomForViewBox(viewBox));
+  return clamp(
+    OSM_TILE_BASE_ZOOM + Math.floor(Math.log2(mapZoom)),
+    OSM_TILE_BASE_ZOOM,
+    OSM_TILE_MAX_ZOOM,
+  );
+}
+
+function renderOsmTiles(svg) {
+  const tileLayer = svg?.querySelector(".route-map-tiles");
+  if (!tileLayer || viewMode !== "map") return;
+
+  const viewBox = currentViewBox(svg);
+  const topLeft = mapPointToWorld(viewBox.x, viewBox.y);
+  const bottomRight = mapPointToWorld(
+    viewBox.x + viewBox.width,
+    viewBox.y + viewBox.height,
+  );
+  const tileZoom = tileZoomForViewBox(viewBox);
+  const tileCountPerAxis = 2 ** tileZoom;
+
+  const minTileX = clamp(Math.floor(topLeft.x * tileCountPerAxis), 0, tileCountPerAxis - 1);
+  const maxTileX = clamp(Math.floor(bottomRight.x * tileCountPerAxis), 0, tileCountPerAxis - 1);
+  const minTileY = clamp(Math.floor(topLeft.y * tileCountPerAxis), 0, tileCountPerAxis - 1);
+  const maxTileY = clamp(Math.floor(bottomRight.y * tileCountPerAxis), 0, tileCountPerAxis - 1);
+
+  const tiles = [];
+  for (let tileY = minTileY; tileY <= maxTileY; tileY += 1) {
+    for (let tileX = minTileX; tileX <= maxTileX; tileX += 1) {
+      const worldTopLeft = {
+        x: tileX / tileCountPerAxis,
+        y: tileY / tileCountPerAxis,
+      };
+      const worldBottomRight = {
+        x: (tileX + 1) / tileCountPerAxis,
+        y: (tileY + 1) / tileCountPerAxis,
+      };
+      const mapTopLeft = projectWorld(worldTopLeft.x, worldTopLeft.y);
+      const mapBottomRight = projectWorld(worldBottomRight.x, worldBottomRight.y);
+      const width = mapBottomRight.x - mapTopLeft.x;
+      const height = mapBottomRight.y - mapTopLeft.y;
+      tiles.push(
+        `<image
+          class="route-map-tile"
+          x="${mapTopLeft.x.toFixed(3)}"
+          y="${mapTopLeft.y.toFixed(3)}"
+          width="${width.toFixed(3)}"
+          height="${height.toFixed(3)}"
+          href="${OSM_TILE_URL}/${tileZoom}/${tileX}/${tileY}.png"
+          preserveAspectRatio="none"
+        />`,
+      );
+    }
+  }
+
+  tileLayer.innerHTML = tiles.join("");
+  svg.dataset.tileProvider = "OpenStreetMap";
+  svg.dataset.tileZoom = String(tileZoom);
+  svg.dataset.tileCount = String(tiles.length);
+}
+
+function scheduleTileRender(svg) {
+  if (!svg || tileRenderFrame !== null || viewMode !== "map") return;
+  tileRenderFrame = requestAnimationFrame(() => {
+    tileRenderFrame = null;
+    if (!svg.isConnected) return;
+    renderOsmTiles(svg);
+  });
+}
+
 function markerScreenScale(zoom) {
   const growth = 1 + Math.log2(Math.max(1, zoom)) * MARKER_GROWTH_PER_ZOOM_DOUBLING;
   return Math.min(MARKER_MAX_SCREEN_SCALE, growth);
@@ -452,6 +563,7 @@ function setMapViewBox(svg, nextViewBox) {
   );
   svg.dataset.zoom = zoomForViewBox(viewBox).toFixed(3);
   applyMapVisualScale(svg);
+  scheduleTileRender(svg);
   scheduleLabelLayout();
 }
 
@@ -645,16 +757,24 @@ function renderMap() {
         <span class="arrival"><i aria-hidden="true"></i>Arrival</span>
       </span>
     </div>
-    <svg class="route-map-canvas" viewBox="0 0 ${MAP_WIDTH} ${MAP_HEIGHT}" role="img" aria-label="Map of France showing stations and proposed train routes" preserveAspectRatio="xMidYMid meet">
-      <path class="route-map-country" d="${countryPath(FRANCE_MAINLAND)}" />
-      <path class="route-map-country" d="${countryPath(FRANCE_CORSICA)}" />
+    <a
+      class="route-map-attribution"
+      href="https://www.openstreetmap.org/copyright"
+      target="_blank"
+      rel="noopener noreferrer"
+    >© OpenStreetMap contributors</a>
+    <svg class="route-map-canvas" viewBox="0 0 ${MAP_WIDTH} ${MAP_HEIGHT}" role="img" aria-label="OpenStreetMap map showing stations and proposed train routes" preserveAspectRatio="xMidYMid meet">
+      <g class="route-map-tiles" aria-hidden="true"></g>
       <g class="route-map-routes">${routesHtml}</g>
       <g class="route-map-stations">${stationHtml}</g>
     </svg>
   `;
 
   const svg = mapView.querySelector(".route-map-canvas");
-  if (svg) installMapInteractions(svg);
+  if (svg) {
+    installMapInteractions(svg);
+    renderOsmTiles(svg);
+  }
   scheduleLabelLayout();
 }
 
