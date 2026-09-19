@@ -116,6 +116,7 @@ jobs:
           python3 -m http.server 8080 --directory dist >/tmp/train-route-explorer-http.log 2>&1 &
           SERVER_PID=$!
           trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          python3 tests/test_map_button_selenium.py
           python3 tests/test_route_dedupe_selenium.py
           python3 tests/test_real_browser_selenium.py
           python3 tests/test_timeline_time_range_selenium.py
