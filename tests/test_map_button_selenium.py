@@ -213,50 +213,25 @@ class MapButtonSeleniumTest(unittest.TestCase):
                 )
             )
 
-            via = self.driver.execute_script(
+            role_actions = self.driver.execute_script(
                 """
                 document.querySelector(
                   '#routes-map [data-map-station-action="via"]'
                 ).click();
-                const stored = JSON.parse(
-                  localStorage.getItem('train-route-explorer-settings-v1') || '{}'
-                );
-                return stored.config?.connection_stations || [];
-                """
-            )
-            self.assertIn("Tours", via, via)
-
-            departure = self.driver.execute_script(
-                """
-                const station = document.querySelector(
-                  '#routes-map .route-map-station[data-map-name="Tours"]'
-                );
-                station.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
                 document.querySelector(
                   '#routes-map [data-map-station-action="departure"]'
                 ).click();
-                return JSON.parse(
-                  localStorage.getItem('train-route-explorer-settings-v1') || '{}'
-                ).config?.local_origins || [];
-                """
-            )
-            self.assertEqual(departure, ["Tours"])
-
-            arrival = self.driver.execute_script(
-                """
-                const station = document.querySelector(
-                  '#routes-map .route-map-station[data-map-name="Tours"]'
-                );
-                station.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
                 document.querySelector(
                   '#routes-map [data-map-station-action="arrival"]'
                 ).click();
                 return JSON.parse(
                   localStorage.getItem('train-route-explorer-settings-v1') || '{}'
-                ).config?.side_b_destinations || [];
+                ).config || {};
                 """
             )
-            self.assertEqual(arrival, ["Tours"])
+            self.assertEqual(role_actions.get("local_origins"), ["Tours"], role_actions)
+            self.assertEqual(role_actions.get("side_b_destinations"), ["Tours"], role_actions)
+            self.assertIn("Tours", role_actions.get("connection_stations", []), role_actions)
         finally:
             self.driver.execute_script(
                 """
