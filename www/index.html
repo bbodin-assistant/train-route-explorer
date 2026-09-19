@@ -38,7 +38,7 @@
     <div id="about-panel" class="about-panel" hidden role="dialog" aria-label="About Train Route Explorer">
       <strong>Train Route Explorer</strong>
       <p>Explore SNCF timetable options as a visual day chart. Route computation runs locally in your browser from GTFS data, including transfers and service filtering.</p>
-      <p>Your route, date, highlights, and train-type configuration are saved in this browser and restored when you return.</p>
+      <p>Your route, highlights, and train-type configuration are saved in this browser and restored when you return. The date starts at today on each visit.</p>
       <div style="display:flex;flex-wrap:wrap;gap:6px;">
         <a href="./strategy.html">Technical white paper ↗</a>
         <a href="https://github.com/bbodin-assistant/train-route-explorer" target="_blank" rel="noreferrer">GitHub repository ↗</a>
@@ -166,7 +166,7 @@
               <span>Departure</span>
               <strong data-route-value="local_origins">—</strong>
             </button>
-            <span class="route-summary-arrow" aria-hidden="true">→</span>
+            <button id="swap-stations-button" class="route-swap-button" type="button" aria-label="Exchange departure and arrival stations" title="Exchange departure and arrival stations">&lt;-&gt;</button>
             <button type="button" class="route-summary-stop" data-route-role="connection_stations">
               <span>Via</span>
               <strong data-route-value="connection_stations">—</strong>
