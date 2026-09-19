@@ -11,8 +11,10 @@ const MAP_HEIGHT = 620;
 const MAP_PADDING = 34;
 const MIN_MAP_ZOOM = 1;
 const LABEL_PADDING = 2;
-const LABEL_FONT_SIZE = 13;
-const LABEL_STROKE_WIDTH = 3.6;
+const LABEL_SCREEN_FONT_SIZE = 13;
+const LABEL_SCREEN_STROKE_WIDTH = 2.5;
+const REGULAR_MARKER_SCREEN_RADIUS = 3.2;
+const SEARCH_MARKER_SCREEN_RADIUS = 5.2;
 const MARKER_MAX_SCREEN_SCALE = 1.65;
 const MARKER_GROWTH_PER_ZOOM_DOUBLING = 0.24;
 const MAP_BOUNDS = {
@@ -291,6 +293,12 @@ function zoomForViewBox(viewBox) {
   return MAP_WIDTH / viewBox.width;
 }
 
+function svgDisplayScale(svg, viewBox = currentViewBox(svg)) {
+  const rect = svg?.getBoundingClientRect();
+  if (!rect?.width || !rect?.height || !viewBox.width || !viewBox.height) return 1;
+  return Math.min(rect.width / viewBox.width, rect.height / viewBox.height);
+}
+
 function clampViewBox(viewBox) {
   const width = Number.isFinite(viewBox.width) && viewBox.width > 0
     ? Math.min(viewBox.width, MAP_WIDTH)
@@ -315,12 +323,12 @@ function rectsOverlap(first, second, padding = LABEL_PADDING) {
   );
 }
 
-function labelCandidates(pointX, zoom) {
+function labelCandidates(pointX, displayScale) {
   const preferredSide = pointX > MAP_WIDTH / 2 ? -1 : 1;
   const sides = [preferredSide, -preferredSide];
-  const horizontalOffset = 8 / zoom;
-  const upperBaseline = -6 / zoom;
-  const lowerBaseline = 12 / zoom;
+  const horizontalOffset = 10 / displayScale;
+  const upperBaseline = -7 / displayScale;
+  const lowerBaseline = 18 / displayScale;
 
   return [
     { x: sides[0] * horizontalOffset, y: upperBaseline, anchor: sides[0] > 0 ? "start" : "end" },
@@ -342,6 +350,7 @@ function layoutStationLabels() {
 
   const viewBox = currentViewBox(svg);
   const zoom = zoomForViewBox(viewBox);
+  const displayScale = svgDisplayScale(svg, viewBox);
   const occupied = [];
   const summaryRect = mapView.querySelector(".route-map-summary")?.getBoundingClientRect();
   if (
@@ -357,8 +366,8 @@ function layoutStationLabels() {
   const labels = Array.from(svg.querySelectorAll("[data-map-label]"));
   for (const label of labels) {
     label.style.opacity = "0";
-    label.style.fontSize = `${(LABEL_FONT_SIZE / zoom).toFixed(3)}px`;
-    label.style.strokeWidth = `${(LABEL_STROKE_WIDTH / zoom).toFixed(3)}px`;
+    label.style.fontSize = `${(LABEL_SCREEN_FONT_SIZE / displayScale).toFixed(3)}px`;
+    label.style.strokeWidth = `${(LABEL_SCREEN_STROKE_WIDTH / displayScale).toFixed(3)}px`;
   }
 
   labels.sort((left, right) => {
@@ -379,7 +388,7 @@ function layoutStationLabels() {
     const pointX = Number(group?.dataset.mapX);
     if (!Number.isFinite(pointX)) continue;
 
-    for (const candidate of labelCandidates(pointX, zoom)) {
+    for (const candidate of labelCandidates(pointX, displayScale)) {
       label.setAttribute("x", candidate.x.toFixed(3));
       label.setAttribute("y", candidate.y.toFixed(3));
       label.setAttribute("text-anchor", candidate.anchor);
@@ -417,14 +426,21 @@ function markerScreenScale(zoom) {
 }
 
 function applyMapVisualScale(svg) {
-  const zoom = zoomForViewBox(currentViewBox(svg));
+  const viewBox = currentViewBox(svg);
+  const zoom = zoomForViewBox(viewBox);
+  const displayScale = svgDisplayScale(svg, viewBox);
   const screenScale = markerScreenScale(zoom);
   svg.dataset.markerScale = screenScale.toFixed(3);
   for (const group of svg.querySelectorAll(".route-map-station")) {
     const circle = group.querySelector("circle");
     if (!circle) continue;
-    const radius = group.classList.contains("search-station") ? 5.2 : 2.7;
-    circle.style.setProperty("r", `${(radius * screenScale / zoom).toFixed(3)}px`);
+    const screenRadius = group.classList.contains("search-station")
+      ? SEARCH_MARKER_SCREEN_RADIUS
+      : REGULAR_MARKER_SCREEN_RADIUS;
+    circle.style.setProperty(
+      "r",
+      `${(screenRadius * screenScale / displayScale).toFixed(3)}px`,
+    );
   }
 }
 
