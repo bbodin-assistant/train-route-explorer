@@ -110,7 +110,11 @@ def test_55_saujon_massy_via_angouleme_current_service_day(self):
     result = self.driver.execute_async_script(
         """
         const done = arguments[0];
-        const appUrl = new URL('./app.js?v=0.23', document.baseURI).href;
+        const appUrl = document.querySelector('script[type="module"][src*="app.js"]')?.src;
+        if (!appUrl) {
+          done({ ok: false, error: 'App module script was not found' });
+          return;
+        }
         import(appUrl).then(({ app }) => {
           window.__saujonMassyApp = app;
           const selectedDay = app.state.availableDays.includes(app.state.selectedDay)
