@@ -96,5 +96,182 @@ class MapButtonSeleniumTest(unittest.TestCase):
         )
 
 
+    def test_mobile_pinch_zoom_and_non_overlapping_city_labels(self):
+        self.driver.set_window_size(390, 844)
+        try:
+            setup = self.driver.execute_async_script(
+                """
+                const done = arguments[0];
+                const appUrl = document.querySelector('script[type="module"][src*="app.js"]')?.src;
+                if (!appUrl) {
+                  done({ ok: false, error: 'App module script was not found' });
+                  return;
+                }
+
+                const stops = [
+                  { stop_name: 'Paris', lat: 48.8566, lon: 2.3522 },
+                  { stop_name: 'Rouen', lat: 49.4432, lon: 1.0993 },
+                  { stop_name: 'Reims', lat: 49.2583, lon: 4.0317 },
+                  { stop_name: 'Orléans', lat: 47.9030, lon: 1.9093 },
+                  { stop_name: 'Chartres', lat: 48.4439, lon: 1.4890 },
+                  { stop_name: 'Meaux', lat: 48.9601, lon: 2.8788 },
+                  { stop_name: 'Évreux', lat: 49.0241, lon: 1.1508 },
+                  { stop_name: 'Melun', lat: 48.5399, lon: 2.6608 },
+                  { stop_name: 'Beauvais', lat: 49.4295, lon: 2.0807 },
+                  { stop_name: 'Compiègne', lat: 49.4179, lon: 2.8261 },
+                  { stop_name: 'Fontainebleau', lat: 48.4047, lon: 2.7016 },
+                  { stop_name: 'Versailles', lat: 48.8014, lon: 2.1301 },
+                ];
+
+                import(appUrl).then(({ app }) => {
+                  app.state.selectedTab = 'out';
+                  app.state.config = {
+                    ...app.state.config,
+                    local_origins: ['Paris'],
+                    connection_stations: ['Chartres'],
+                    side_b_destinations: ['Reims'],
+                  };
+                  app.state.routes = {
+                    ...app.state.routes,
+                    outward: [{
+                      legs: [{
+                        train_type: 'TER',
+                        train_number: 'TEST',
+                        path: stops,
+                      }],
+                    }],
+                    returns: [],
+                  };
+                  done({ ok: true, stopCount: stops.length });
+                }).catch((error) => done({ ok: false, error: String(error) }));
+                """
+            )
+            self.assertTrue(setup.get("ok"), setup)
+
+            map_button = self.wait.until(
+                EC.element_to_be_clickable(
+                    (By.CSS_SELECTOR, '#route-view-tabs [data-view="map"]')
+                )
+            )
+            map_button.click()
+
+            self.wait.until(
+                lambda driver: driver.execute_script(
+                    """
+                    const svg = document.querySelector('#routes-map .route-map-canvas');
+                    return Boolean(svg && svg.dataset.labelsLaidOut === 'true');
+                    """
+                )
+            )
+
+            def label_metrics():
+                return self.driver.execute_script(
+                    """
+                    const svg = document.querySelector('#routes-map .route-map-canvas');
+                    const labels = Array.from(svg.querySelectorAll('[data-map-label]'));
+                    const visible = labels.filter(
+                      (label) => parseFloat(getComputedStyle(label).opacity) > 0.5
+                    );
+                    const rects = visible.map((label) => ({
+                      name: label.textContent.trim(),
+                      rect: label.getBoundingClientRect(),
+                    }));
+                    const overlaps = [];
+                    for (let left = 0; left < rects.length; left += 1) {
+                      for (let right = left + 1; right < rects.length; right += 1) {
+                        const a = rects[left].rect;
+                        const b = rects[right].rect;
+                        const intersects = !(
+                          a.right <= b.left ||
+                          a.left >= b.right ||
+                          a.bottom <= b.top ||
+                          a.top >= b.bottom
+                        );
+                        if (intersects) {
+                          overlaps.push([rects[left].name, rects[right].name]);
+                        }
+                      }
+                    }
+                    return {
+                      zoom: Number(svg.dataset.zoom || 1),
+                      viewBoxWidth: svg.viewBox.baseVal.width,
+                      totalLabels: labels.length,
+                      visibleLabels: visible.length,
+                      overlaps,
+                      touchAction: getComputedStyle(svg).touchAction,
+                    };
+                    """
+                )
+
+            before = label_metrics()
+            self.assertEqual(before["totalLabels"], setup["stopCount"])
+            self.assertGreater(before["visibleLabels"], 0)
+            self.assertEqual(before["overlaps"], [])
+            self.assertEqual(before["touchAction"], "none")
+
+            pinch = self.driver.execute_script(
+                """
+                const svg = document.querySelector('#routes-map .route-map-canvas');
+                const paris = Array.from(svg.querySelectorAll('.route-map-station')).find(
+                  (group) => group.querySelector('title')?.textContent === 'Paris'
+                );
+                const circle = paris?.querySelector('circle');
+                if (!circle) return { ok: false, error: 'Paris station marker not found' };
+
+                const rect = circle.getBoundingClientRect();
+                const centerX = (rect.left + rect.right) / 2;
+                const centerY = (rect.top + rect.bottom) / 2;
+                const dispatch = (type, pointerId, clientX, clientY) => {
+                  svg.dispatchEvent(new PointerEvent(type, {
+                    bubbles: true,
+                    cancelable: true,
+                    pointerId,
+                    pointerType: 'touch',
+                    clientX,
+                    clientY,
+                  }));
+                };
+
+                const initialWidth = svg.viewBox.baseVal.width;
+                dispatch('pointerdown', 1, centerX - 24, centerY);
+                dispatch('pointerdown', 2, centerX + 24, centerY);
+                dispatch('pointermove', 1, centerX - 82, centerY);
+                dispatch('pointermove', 2, centerX + 82, centerY);
+                dispatch('pointerup', 1, centerX - 82, centerY);
+                dispatch('pointerup', 2, centerX + 82, centerY);
+
+                return {
+                  ok: true,
+                  initialWidth,
+                  finalWidth: svg.viewBox.baseVal.width,
+                  zoom: Number(svg.dataset.zoom || 1),
+                };
+                """
+            )
+            self.assertTrue(pinch.get("ok"), pinch)
+            self.assertLess(pinch["finalWidth"], pinch["initialWidth"])
+            self.assertGreater(pinch["zoom"], 1)
+
+            self.wait.until(
+                lambda driver: driver.execute_script(
+                    """
+                    const svg = document.querySelector('#routes-map .route-map-canvas');
+                    return Boolean(svg && svg.dataset.labelsLaidOut === 'true');
+                    """
+                )
+            )
+
+            after = label_metrics()
+            self.assertGreater(after["zoom"], before["zoom"])
+            self.assertGreater(
+                after["visibleLabels"],
+                before["visibleLabels"],
+                f"Expected zooming to reveal more labels: before={before}, after={after}",
+            )
+            self.assertEqual(after["overlaps"], [])
+        finally:
+            self.driver.set_window_size(1440, 1000)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
