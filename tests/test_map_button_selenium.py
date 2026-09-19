@@ -249,6 +249,36 @@ class MapButtonSeleniumTest(unittest.TestCase):
                 "https://www.openstreetmap.org/copyright",
             )
 
+            tile_coverage = self.driver.execute_script(
+                """
+                const svg = document.querySelector('#routes-map .route-map-canvas');
+                const viewBox = svg.viewBox.baseVal;
+                const tiles = Array.from(svg.querySelectorAll('.route-map-tile'));
+                const values = tiles.map((tile) => ({
+                  x: Number(tile.getAttribute('x')),
+                  y: Number(tile.getAttribute('y')),
+                  width: Number(tile.getAttribute('width')),
+                  height: Number(tile.getAttribute('height')),
+                }));
+                const left = Math.min(...values.map((tile) => tile.x));
+                const top = Math.min(...values.map((tile) => tile.y));
+                const right = Math.max(...values.map((tile) => tile.x + tile.width));
+                const bottom = Math.max(...values.map((tile) => tile.y + tile.height));
+                return {
+                  overscan: Number(svg.dataset.tileOverscan || 0),
+                  leftMargin: viewBox.x - left,
+                  rightMargin: right - (viewBox.x + viewBox.width),
+                  topMargin: viewBox.y - top,
+                  bottomMargin: bottom - (viewBox.y + viewBox.height),
+                };
+                """
+            )
+            self.assertGreaterEqual(tile_coverage["overscan"], 1, tile_coverage)
+            self.assertGreater(tile_coverage["leftMargin"], 0, tile_coverage)
+            self.assertGreater(tile_coverage["rightMargin"], 0, tile_coverage)
+            self.assertGreater(tile_coverage["topMargin"], 0, tile_coverage)
+            self.assertGreater(tile_coverage["bottomMargin"], 0, tile_coverage)
+
             before = label_metrics()
             self.assertEqual(before["totalLabels"], setup["stopCount"])
             self.assertGreater(before["visibleLabels"], 0)
@@ -348,6 +378,26 @@ class MapButtonSeleniumTest(unittest.TestCase):
             self.assertLessEqual(after["markerScale"], 1.66)
             self.assertGreater(after["parisMarkerDiameter"], before["parisMarkerDiameter"])
 
+            tile_probe = self.driver.execute_script(
+                """
+                const svg = document.querySelector('#routes-map .route-map-canvas');
+                const viewBox = svg.viewBox.baseVal;
+                const centerX = viewBox.x + viewBox.width / 2;
+                const centerY = viewBox.y + viewBox.height / 2;
+                const tile = Array.from(svg.querySelectorAll('.route-map-tile')).find((candidate) => {
+                  const x = Number(candidate.getAttribute('x'));
+                  const y = Number(candidate.getAttribute('y'));
+                  const width = Number(candidate.getAttribute('width'));
+                  const height = Number(candidate.getAttribute('height'));
+                  return centerX >= x && centerX <= x + width && centerY >= y && centerY <= y + height;
+                });
+                if (!tile) return '';
+                tile.dataset.reuseProbe = 'true';
+                return tile.dataset.tileKey || '';
+                """
+            )
+            self.assertTrue(tile_probe, "Expected a center OSM tile to mark for reuse")
+
             pan = self.driver.execute_script(
                 """
                 const svg = document.querySelector('#routes-map .route-map-canvas');
@@ -397,6 +447,16 @@ class MapButtonSeleniumTest(unittest.TestCase):
             after_pan = label_metrics()
             self.assertEqual(after_pan["overlaps"], [])
             self.assertLessEqual(after_pan["markerScale"], 1.66)
+            self.assertTrue(
+                self.driver.execute_script(
+                    """
+                    return Boolean(document.querySelector(
+                      '#routes-map .route-map-tile[data-reuse-probe="true"]'
+                    ));
+                    """
+                ),
+                "Panning should retain already loaded OSM tile nodes",
+            )
         finally:
             self.driver.set_window_size(1440, 1000)
 
@@ -467,11 +527,13 @@ class MapButtonSeleniumTest(unittest.TestCase):
               wheelZoom: svg.dataset.wheelZoom,
               zoom: Number(svg.dataset.zoom || 1),
               width: svg.viewBox.baseVal.width,
+              routeFilter: getComputedStyle(svg.querySelector('.route-map-route')).filter,
             };
             """
         )
         self.assertEqual(interaction["desktopPan"], "enabled")
         self.assertEqual(interaction["wheelZoom"], "enabled")
+        self.assertEqual(interaction["routeFilter"], "none")
 
         zoomed = self.driver.execute_script(
             """
@@ -520,13 +582,30 @@ class MapButtonSeleniumTest(unittest.TestCase):
               }));
             };
             const before = { x: svg.viewBox.baseVal.x, y: svg.viewBox.baseVal.y };
-            dispatch('pointerdown', startX, startY);
-            dispatch('pointermove', startX - 80, startY - 45);
-            dispatch('pointerup', startX - 80, startY - 45);
+            const originalSetAttribute = Element.prototype.setAttribute;
+            let viewBoxWrites = 0;
+            Element.prototype.setAttribute = function(name, value) {
+              if (this === svg && name === 'viewBox') viewBoxWrites += 1;
+              return originalSetAttribute.call(this, name, value);
+            };
+            try {
+              dispatch('pointerdown', startX, startY);
+              for (let step = 1; step <= 24; step += 1) {
+                dispatch(
+                  'pointermove',
+                  startX - (80 * step / 24),
+                  startY - (45 * step / 24),
+                );
+              }
+              dispatch('pointerup', startX - 80, startY - 45);
+            } finally {
+              Element.prototype.setAttribute = originalSetAttribute;
+            }
             return {
               before,
               after: { x: svg.viewBox.baseVal.x, y: svg.viewBox.baseVal.y },
               dragging: svg.dataset.dragging,
+              viewBoxWrites,
             };
             """
         )
@@ -536,6 +615,11 @@ class MapButtonSeleniumTest(unittest.TestCase):
             panned,
         )
         self.assertEqual(panned["dragging"], "false")
+        self.assertLessEqual(
+            panned["viewBoxWrites"],
+            2,
+            f"Desktop drag should coalesce pointer moves into animation-frame updates: {panned}",
+        )
 
         style_result = self.driver.execute_script(
             """

@@ -13,6 +13,7 @@ const MAP_PADDING = 34;
 const MIN_MAP_ZOOM = 1;
 const OSM_TILE_BASE_ZOOM = 6;
 const OSM_TILE_MAX_ZOOM = 19;
+const OSM_TILE_OVERSCAN = 2;
 const OSM_TILE_URL = "https://tile.openstreetmap.org";
 const LABEL_PADDING = 2;
 const LABEL_SCREEN_FONT_SIZE = 13;
@@ -99,7 +100,6 @@ mapStyle.textContent = `
     stroke-linejoin: round;
     opacity: 0.78;
     vector-effect: non-scaling-stroke;
-    filter: drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.95));
   }
 
   .route-map-station circle {
@@ -232,6 +232,8 @@ let viewMode = "time";
 let renderFrame = null;
 let labelLayoutFrame = null;
 let tileRenderFrame = null;
+let panFrame = null;
+let pendingPan = null;
 const activePointers = new Map();
 let pinchGesture = null;
 
@@ -511,57 +513,118 @@ function tileZoomForViewBox(viewBox) {
   );
 }
 
-function renderOsmTiles(svg) {
-  const tileLayer = svg?.querySelector(".route-map-tiles");
-  if (!tileLayer || viewMode !== "map") return;
-
-  const viewBox = currentViewBox(svg);
+function tileRangeForViewBox(viewBox, tileZoom, overscan = 0) {
   const topLeft = mapPointToWorld(viewBox.x, viewBox.y);
   const bottomRight = mapPointToWorld(
     viewBox.x + viewBox.width,
     viewBox.y + viewBox.height,
   );
-  const tileZoom = tileZoomForViewBox(viewBox);
   const tileCountPerAxis = 2 ** tileZoom;
+  return {
+    tileCountPerAxis,
+    minTileX: clamp(
+      Math.floor(topLeft.x * tileCountPerAxis) - overscan,
+      0,
+      tileCountPerAxis - 1,
+    ),
+    maxTileX: clamp(
+      Math.floor(bottomRight.x * tileCountPerAxis) + overscan,
+      0,
+      tileCountPerAxis - 1,
+    ),
+    minTileY: clamp(
+      Math.floor(topLeft.y * tileCountPerAxis) - overscan,
+      0,
+      tileCountPerAxis - 1,
+    ),
+    maxTileY: clamp(
+      Math.floor(bottomRight.y * tileCountPerAxis) + overscan,
+      0,
+      tileCountPerAxis - 1,
+    ),
+  };
+}
 
-  const minTileX = clamp(Math.floor(topLeft.x * tileCountPerAxis), 0, tileCountPerAxis - 1);
-  const maxTileX = clamp(Math.floor(bottomRight.x * tileCountPerAxis), 0, tileCountPerAxis - 1);
-  const minTileY = clamp(Math.floor(topLeft.y * tileCountPerAxis), 0, tileCountPerAxis - 1);
-  const maxTileY = clamp(Math.floor(bottomRight.y * tileCountPerAxis), 0, tileCountPerAxis - 1);
+function renderedTilesCoverView(svg, tileZoom, viewRange) {
+  if (Number(svg.dataset.tileZoom || 0) !== tileZoom) return false;
+  const minTileX = Number(svg.dataset.tileMinX);
+  const maxTileX = Number(svg.dataset.tileMaxX);
+  const minTileY = Number(svg.dataset.tileMinY);
+  const maxTileY = Number(svg.dataset.tileMaxY);
+  return (
+    Number.isFinite(minTileX)
+    && Number.isFinite(maxTileX)
+    && Number.isFinite(minTileY)
+    && Number.isFinite(maxTileY)
+    && viewRange.minTileX >= minTileX
+    && viewRange.maxTileX <= maxTileX
+    && viewRange.minTileY >= minTileY
+    && viewRange.maxTileY <= maxTileY
+  );
+}
 
-  const tiles = [];
-  for (let tileY = minTileY; tileY <= maxTileY; tileY += 1) {
-    for (let tileX = minTileX; tileX <= maxTileX; tileX += 1) {
+function renderOsmTiles(svg) {
+  const tileLayer = svg?.querySelector(".route-map-tiles");
+  if (!tileLayer || viewMode !== "map") return;
+
+  const viewBox = currentViewBox(svg);
+  const tileZoom = tileZoomForViewBox(viewBox);
+  const viewRange = tileRangeForViewBox(viewBox, tileZoom);
+  if (renderedTilesCoverView(svg, tileZoom, viewRange)) return;
+
+  const range = tileRangeForViewBox(viewBox, tileZoom, OSM_TILE_OVERSCAN);
+  const existingTiles = new Map(
+    Array.from(tileLayer.querySelectorAll(".route-map-tile"), (tile) => [
+      tile.dataset.tileKey,
+      tile,
+    ]),
+  );
+  let tileCount = 0;
+
+  for (let tileY = range.minTileY; tileY <= range.maxTileY; tileY += 1) {
+    for (let tileX = range.minTileX; tileX <= range.maxTileX; tileX += 1) {
+      const tileKey = `${tileZoom}/${tileX}/${tileY}`;
       const worldTopLeft = {
-        x: tileX / tileCountPerAxis,
-        y: tileY / tileCountPerAxis,
+        x: tileX / range.tileCountPerAxis,
+        y: tileY / range.tileCountPerAxis,
       };
       const worldBottomRight = {
-        x: (tileX + 1) / tileCountPerAxis,
-        y: (tileY + 1) / tileCountPerAxis,
+        x: (tileX + 1) / range.tileCountPerAxis,
+        y: (tileY + 1) / range.tileCountPerAxis,
       };
       const mapTopLeft = projectWorld(worldTopLeft.x, worldTopLeft.y);
       const mapBottomRight = projectWorld(worldBottomRight.x, worldBottomRight.y);
       const width = mapBottomRight.x - mapTopLeft.x;
       const height = mapBottomRight.y - mapTopLeft.y;
-      tiles.push(
-        `<image
-          class="route-map-tile"
-          x="${mapTopLeft.x.toFixed(3)}"
-          y="${mapTopLeft.y.toFixed(3)}"
-          width="${width.toFixed(3)}"
-          height="${height.toFixed(3)}"
-          href="${OSM_TILE_URL}/${tileZoom}/${tileX}/${tileY}.png"
-          preserveAspectRatio="none"
-        />`,
-      );
+
+      let tile = existingTiles.get(tileKey);
+      if (!tile) {
+        tile = document.createElementNS("http://www.w3.org/2000/svg", "image");
+        tile.classList.add("route-map-tile");
+        tile.dataset.tileKey = tileKey;
+        tile.setAttribute("href", `${OSM_TILE_URL}/${tileZoom}/${tileX}/${tileY}.png`);
+        tile.setAttribute("preserveAspectRatio", "none");
+        tileLayer.append(tile);
+      }
+      tile.setAttribute("x", mapTopLeft.x.toFixed(3));
+      tile.setAttribute("y", mapTopLeft.y.toFixed(3));
+      tile.setAttribute("width", width.toFixed(3));
+      tile.setAttribute("height", height.toFixed(3));
+      existingTiles.delete(tileKey);
+      tileCount += 1;
     }
   }
 
-  tileLayer.innerHTML = tiles.join("");
+  for (const staleTile of existingTiles.values()) staleTile.remove();
+
   svg.dataset.tileProvider = "OpenStreetMap";
   svg.dataset.tileZoom = String(tileZoom);
-  svg.dataset.tileCount = String(tiles.length);
+  svg.dataset.tileCount = String(tileCount);
+  svg.dataset.tileOverscan = String(OSM_TILE_OVERSCAN);
+  svg.dataset.tileMinX = String(range.minTileX);
+  svg.dataset.tileMaxX = String(range.maxTileX);
+  svg.dataset.tileMinY = String(range.minTileY);
+  svg.dataset.tileMaxY = String(range.maxTileY);
 }
 
 function scheduleTileRender(svg) {
@@ -597,16 +660,20 @@ function applyMapVisualScale(svg) {
   }
 }
 
-function setMapViewBox(svg, nextViewBox) {
+function setMapViewBox(
+  svg,
+  nextViewBox,
+  { updateVisualScale = true, updateLabels = true } = {},
+) {
   const viewBox = clampViewBox(nextViewBox);
   svg.setAttribute(
     "viewBox",
     `${viewBox.x.toFixed(3)} ${viewBox.y.toFixed(3)} ${viewBox.width.toFixed(3)} ${viewBox.height.toFixed(3)}`,
   );
   svg.dataset.zoom = zoomForViewBox(viewBox).toFixed(3);
-  applyMapVisualScale(svg);
+  if (updateVisualScale) applyMapVisualScale(svg);
   scheduleTileRender(svg);
-  scheduleLabelLayout();
+  if (updateLabels) scheduleLabelLayout();
 }
 
 function clientPointToMap(svg, clientX, clientY) {
@@ -620,6 +687,48 @@ function clientPointToMap(svg, clientX, clientY) {
 
 function pointerDistance(first, second) {
   return Math.hypot(first.x - second.x, first.y - second.y);
+}
+
+function applyPendingPan(svg) {
+  if (!pendingPan || pendingPan.svg !== svg) return;
+  const { deltaX, deltaY } = pendingPan;
+  pendingPan = null;
+
+  const displayScale = svgDisplayScale(svg);
+  if (!displayScale) return;
+  const viewBox = currentViewBox(svg);
+  setMapViewBox(
+    svg,
+    {
+      ...viewBox,
+      x: viewBox.x + deltaX / displayScale,
+      y: viewBox.y + deltaY / displayScale,
+    },
+    { updateVisualScale: false, updateLabels: false },
+  );
+}
+
+function schedulePan(svg, deltaX, deltaY) {
+  if (!deltaX && !deltaY) return;
+  if (!pendingPan || pendingPan.svg !== svg) {
+    pendingPan = { svg, deltaX: 0, deltaY: 0 };
+  }
+  pendingPan.deltaX += deltaX;
+  pendingPan.deltaY += deltaY;
+  if (panFrame !== null) return;
+
+  panFrame = requestAnimationFrame(() => {
+    panFrame = null;
+    applyPendingPan(svg);
+  });
+}
+
+function flushPendingPan(svg) {
+  if (panFrame !== null) {
+    cancelAnimationFrame(panFrame);
+    panFrame = null;
+  }
+  applyPendingPan(svg);
 }
 
 function beginPinch(svg) {
@@ -655,6 +764,9 @@ function beginPinch(svg) {
 function installMapInteractions(svg) {
   activePointers.clear();
   pinchGesture = null;
+  if (panFrame !== null) cancelAnimationFrame(panFrame);
+  panFrame = null;
+  pendingPan = null;
   svg.dataset.pinchZoom = "enabled";
   svg.dataset.touchPan = "enabled";
   svg.dataset.desktopPan = "enabled";
@@ -676,7 +788,10 @@ function installMapInteractions(svg) {
     } catch {
       // Synthetic browser tests may not have an active native pointer capture target.
     }
-    if (activePointers.size === 2) beginPinch(svg);
+    if (activePointers.size === 2) {
+      flushPendingPan(svg);
+      beginPinch(svg);
+    }
     event.preventDefault();
   });
 
@@ -691,16 +806,7 @@ function installMapInteractions(svg) {
     });
 
     if (activePointers.size === 1) {
-      const previousMapPoint = clientPointToMap(svg, previous.x, previous.y);
-      const currentMapPoint = clientPointToMap(svg, event.clientX, event.clientY);
-      if (previousMapPoint && currentMapPoint) {
-        const viewBox = currentViewBox(svg);
-        setMapViewBox(svg, {
-          ...viewBox,
-          x: viewBox.x + previousMapPoint.x - currentMapPoint.x,
-          y: viewBox.y + previousMapPoint.y - currentMapPoint.y,
-        });
-      }
+      schedulePan(svg, previous.x - event.clientX, previous.y - event.clientY);
       event.preventDefault();
       return;
     }
@@ -732,9 +838,14 @@ function installMapInteractions(svg) {
   });
 
   const endPointer = (event) => {
+    flushPendingPan(svg);
     activePointers.delete(event.pointerId);
     if (activePointers.size < 2) pinchGesture = null;
-    if (!activePointers.size) svg.dataset.dragging = "false";
+    if (!activePointers.size) {
+      svg.dataset.dragging = "false";
+      scheduleTileRender(svg);
+      scheduleLabelLayout();
+    }
   };
   svg.addEventListener("pointerup", endPointer);
   svg.addEventListener("pointercancel", endPointer);
