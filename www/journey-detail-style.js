@@ -27,6 +27,34 @@ journeyDetailStyle.textContent = `
     color: #8a9298 !important;
   }
 
+  .journey-detail-stop {
+    min-height: 34px !important;
+  }
+
+  .journey-detail-stop > span {
+    padding-top: 2px !important;
+    font-size: 9px !important;
+    line-height: 1.1 !important;
+  }
+
+  .journey-detail-stop.journey-detail-intermediate {
+    min-height: 25px !important;
+  }
+
+  .journey-detail-stop.journey-detail-intermediate strong {
+    font-size: 11px !important;
+    line-height: 1.15 !important;
+  }
+
+  #train-detail-frame:not(.journey-detail-frame) .detail-stop {
+    min-height: 30px;
+  }
+
+  #train-detail-frame:not(.journey-detail-frame) .detail-stop span {
+    font-size: 10px;
+    line-height: 1.15;
+  }
+
   /* A transfer is an edge between two station nodes, not another station row.
      Keep it out of normal flow so interchange nodes use the same vertical
      spacing as every other adjacent pair of stations. */

@@ -21,7 +21,7 @@
       <div class="brand">
         <span class="brand-rail" aria-hidden="true"><i></i><i></i></span>
         <span>
-          <strong>Train Route Explorer <span class="app-version" style="margin-left:4px;color:#9aa09f;font-size:9px;font-weight:600;letter-spacing:0;vertical-align:baseline;">v0.24</span></strong>
+          <strong>Train Route Explorer <span class="app-version" style="margin-left:4px;color:#9aa09f;font-size:9px;font-weight:600;letter-spacing:0;vertical-align:baseline;">v0.25</span></strong>
           <small>working timetable</small>
         </span>
       </div>
@@ -49,9 +49,15 @@
       <section class="timetable-shell" aria-label="Train timetable">
         <header class="timetable-toolbar">
           <div class="toolbar-primary">
-            <div id="route-direction-tabs" class="tab-buttons" aria-label="Journey direction">
-              <button data-tab="out" class="selected" aria-pressed="true">Departure → Arrival</button>
-              <button data-tab="back" aria-pressed="false">Arrival → Departure</button>
+            <div class="toolbar-switches">
+              <div id="route-direction-tabs" class="tab-buttons" aria-label="Journey direction">
+                <button data-tab="out" class="selected" aria-pressed="true">Departure → Arrival</button>
+                <button data-tab="back" aria-pressed="false">Arrival → Departure</button>
+              </div>
+              <div id="route-view-tabs" class="tab-buttons view-mode-tabs" aria-label="Route view">
+                <button data-view="time" class="selected" aria-pressed="true">Time</button>
+                <button data-view="map" aria-pressed="false">Map</button>
+              </div>
             </div>
 
             <div class="day-control">
@@ -182,6 +188,7 @@
         <section id="routes-time-chart" class="timeline">
           Load a GTFS archive to build routes.
         </section>
+        <section id="routes-map" class="route-map-view" hidden aria-label="Route map"></section>
       </section>
     </main>
 
@@ -194,6 +201,7 @@
     <script type="module" src="./sorting.js?grouped-sorting=2"></script>
     <script type="module" src="./row-details.js?v=0.11"></script>
     <script type="module" src="./switch-toggle.js?v=0.3"></script>
+    <script type="module" src="./route-map.js?v=0.25"></script>
     <script type="module" src="./legend-config.js"></script>
     <script type="module" src="./station-actions.js?v=0.18"></script>
     <script type="module" src="./station-filter-actions.js?v=0.18"></script>

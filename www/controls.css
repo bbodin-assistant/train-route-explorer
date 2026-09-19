@@ -474,3 +474,45 @@
   .drawer-hint { display: none; }
   .route-summary-stop span { display: none; }
 }
+
+
+.toolbar-switches {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.view-mode-tabs {
+  width: 116px;
+}
+
+.view-mode-tabs:has(button[data-view="map"].selected)::before {
+  transform: translateX(100%);
+}
+
+@media (max-width: 900px) {
+  .toolbar-switches {
+    grid-area: tabs;
+    display: grid;
+    grid-template-columns: minmax(0, 1.55fr) minmax(76px, 0.8fr);
+    gap: 5px;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .toolbar-switches .tab-buttons {
+    grid-area: auto;
+    width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  .toolbar-switches .tab-buttons {
+    width: 100%;
+  }
+
+  .toolbar-switches .tab-buttons button {
+    padding-inline: 6px;
+  }
+}

@@ -169,6 +169,11 @@ function escapeText(value) {
     .replaceAll("'", "&#039;");
 }
 
+function compactTime(value) {
+  const text = String(value ?? "").trim();
+  return text.replace(/^(\d{1,3}:\d{2}):\d{2}$/, "$1");
+}
+
 function serviceLabel(leg) {
   const type = String(leg?.train_type || "Train").trim();
   const number = String(leg?.train_number || "").trim();
@@ -272,8 +277,8 @@ function buildJourneyItems(data) {
 }
 
 function nodeTime(node) {
-  const arrival = String(node.arrivalTime || "").trim();
-  const departure = String(node.departureTime || "").trim();
+  const arrival = compactTime(node.arrivalTime);
+  const departure = compactTime(node.departureTime);
   if (arrival && departure && arrival !== departure) return `${arrival} / ${departure}`;
   return departure || arrival || "—";
 }
@@ -377,8 +382,8 @@ function showJourneyGraph(row) {
   detailFrame.classList.add("journey-detail-frame");
   detailFrame.innerHTML = `
     <div class="journey-detail-heading">
-      ${escapeText(firstLeg.departure_stop || "—")} ${escapeText(firstLeg.departure_time || "")}
-      → ${escapeText(lastLeg.destination_stop || "—")} ${escapeText(lastLeg.arrival_time || "")}
+      ${escapeText(firstLeg.departure_stop || "—")} ${escapeText(compactTime(firstLeg.departure_time))}
+      → ${escapeText(lastLeg.destination_stop || "—")} ${escapeText(compactTime(lastLeg.arrival_time))}
     </div>
     <div class="journey-detail-meta">
       <span>Duration <strong>${escapeText(data.duration)}</strong></span>
