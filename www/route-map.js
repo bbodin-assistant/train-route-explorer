@@ -335,8 +335,8 @@ function labelCandidates(pointX, displayScale) {
     { x: sides[0] * horizontalOffset, y: lowerBaseline, anchor: sides[0] > 0 ? "start" : "end" },
     { x: sides[1] * horizontalOffset, y: upperBaseline, anchor: sides[1] > 0 ? "start" : "end" },
     { x: sides[1] * horizontalOffset, y: lowerBaseline, anchor: sides[1] > 0 ? "start" : "end" },
-    { x: 0, y: -9 / zoom, anchor: "middle" },
-    { x: 0, y: 16 / zoom, anchor: "middle" },
+    { x: 0, y: -12 / displayScale, anchor: "middle" },
+    { x: 0, y: 22 / displayScale, anchor: "middle" },
   ];
 }
 
