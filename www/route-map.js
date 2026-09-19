@@ -399,6 +399,8 @@ function layoutStationLabels() {
 
 function scheduleLabelLayout() {
   if (labelLayoutFrame !== null || viewMode !== "map") return;
+  const svg = mapView?.querySelector(".route-map-canvas");
+  if (svg) svg.dataset.labelsLaidOut = "false";
   labelLayoutFrame = requestAnimationFrame(layoutStationLabels);
 }
 
