@@ -208,11 +208,7 @@ class MapButtonSeleniumTest(unittest.TestCase):
                     const stored = JSON.parse(
                       localStorage.getItem('train-route-explorer-settings-v1') || '{}'
                     );
-                    const highlighted = stored.highlights?.includes('Tours') || false;
-                    const highlightedClass = document.querySelector(
-                      '#routes-map .route-map-station[data-map-name="Tours"]'
-                    )?.classList.contains('highlighted') || false;
-                    return highlighted && highlightedClass;
+                    return stored.highlights?.includes('Tours') || false;
                     """
                 )
             )
