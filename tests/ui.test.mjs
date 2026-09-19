@@ -169,6 +169,35 @@ async function main() {
     assert(await page.eval(`document.querySelector('[data-role="side_b_destinations"] legend')?.textContent`) === "Arrival stations", "Arrival station list should use arrival terminology");
     assert(await page.eval(`Array.from(document.querySelectorAll("#route-direction-tabs button")).map((button) => button.textContent).join("|")`) === "Departure → Arrival|Arrival → Departure", "Direction tabs should use departure and arrival terminology");
     assert(await page.eval(`Array.from(document.querySelectorAll("#route-view-tabs button")).map((button) => button.textContent).join("|")`) === "Time|Map", "View switch should expose Time and Map modes");
+
+    await page.send("Emulation.setDeviceMetricsOverride", {
+      width: 390,
+      height: 844,
+      deviceScaleFactor: 1,
+      mobile: true,
+    });
+    const mobileViewToggle = await page.eval(`(() => {
+      const day = document.querySelector(".day-control").getBoundingClientRect();
+      const toggle = document.querySelector("#route-view-tabs").getBoundingClientRect();
+      const slider = document.querySelector("#route-view-tabs");
+      const beforeTransform = getComputedStyle(slider, "::before").transform;
+      document.querySelector('#route-view-tabs [data-view="map"]').click();
+      const afterTransform = getComputedStyle(slider, "::before").transform;
+      return {
+        sameRow: Math.abs((day.top + day.height / 2) - (toggle.top + toggle.height / 2)) < 6,
+        toggleToRight: toggle.left > day.left,
+        withinViewport: toggle.right <= window.innerWidth,
+        beforeTransform,
+        afterTransform,
+        mapPressed: document.querySelector('#route-view-tabs [data-view="map"]').getAttribute("aria-pressed"),
+        timePressed: document.querySelector('#route-view-tabs [data-view="time"]').getAttribute("aria-pressed"),
+      };
+    })()`);
+    assert(mobileViewToggle.sameRow && mobileViewToggle.toggleToRight && mobileViewToggle.withinViewport, "Mobile Time/Map toggle should sit beside the date controls");
+    assert(mobileViewToggle.mapPressed === "true" && mobileViewToggle.timePressed === "false", "Map side should become selected when tapped");
+    assert(mobileViewToggle.beforeTransform !== mobileViewToggle.afterTransform, "View toggle indicator should slide to the selected side");
+    await page.eval(`document.querySelector('#route-view-tabs [data-view="time"]').click()`);
+    await page.send("Emulation.clearDeviceMetricsOverride");
     assert(await page.eval(`document.querySelector("#highlight-stations") === null`), "Separate Highlights panel should not render");
     assert(await page.eval(`document.querySelector("#swap-stations-button")?.textContent === "<->"`), "Exchange button should render in the route summary");
     const beforeSwap = await page.eval(`JSON.stringify(JSON.parse(localStorage.getItem("train-route-explorer-settings-v1")).config)`);
