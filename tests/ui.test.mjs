@@ -168,6 +168,7 @@ async function main() {
     assert(await page.eval(`document.querySelector('[data-role="local_origins"] legend')?.textContent`) === "Departure stations", "Departure station list should use departure terminology");
     assert(await page.eval(`document.querySelector('[data-role="side_b_destinations"] legend')?.textContent`) === "Arrival stations", "Arrival station list should use arrival terminology");
     assert(await page.eval(`Array.from(document.querySelectorAll("#route-direction-tabs button")).map((button) => button.textContent).join("|")`) === "Departure → Arrival|Arrival → Departure", "Direction tabs should use departure and arrival terminology");
+    assert(await page.eval(`Array.from(document.querySelectorAll("#route-view-tabs button")).map((button) => button.textContent).join("|")`) === "Time|Map", "View switch should expose Time and Map modes");
     assert(await page.eval(`document.querySelector("#highlight-stations") === null`), "Separate Highlights panel should not render");
     assert(await page.eval(`document.querySelector("#swap-stations-button")?.textContent === "<->"`), "Exchange button should render in the route summary");
     const beforeSwap = await page.eval(`JSON.stringify(JSON.parse(localStorage.getItem("train-route-explorer-settings-v1")).config)`);
@@ -340,6 +341,21 @@ async function main() {
       message: "unrestricted transfer routes to render",
     });
     assert(await page.eval(`document.querySelectorAll(".timeline-bar.train").length`) > 0, "Unrestricted transfer routing should return reachable journeys");
+
+    const mapMode = await page.eval(`(() => {
+      document.querySelector('#route-view-tabs [data-view="map"]').click();
+      return {
+        mapHidden: document.querySelector("#routes-map").hidden,
+        timeHidden: document.querySelector("#routes-time-chart").hidden,
+        stations: document.querySelectorAll("#routes-map .route-map-station").length,
+        routeSegments: document.querySelectorAll("#routes-map .route-map-route").length,
+      };
+    })()`);
+    assert(!mapMode.mapHidden && mapMode.timeHidden, "Map mode should replace the time chart");
+    assert(mapMode.stations > 0, "Map mode should plot returned route stations");
+    assert(mapMode.routeSegments > 0, "Map mode should plot proposed route segments");
+    await page.eval(`document.querySelector('#route-view-tabs [data-view="time"]').click()`);
+    assert(await page.eval(`!document.querySelector("#routes-time-chart").hidden && document.querySelector("#routes-map").hidden`), "Time mode should restore the time chart");
 
     async function assertSelectedFirst(containerSelector, label) {
       const result = await page.eval(`(() => {

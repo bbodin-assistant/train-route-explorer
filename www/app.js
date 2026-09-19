@@ -152,6 +152,11 @@ function clockLabel(minute) {
   return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
 }
 
+function compactGtfsTime(value) {
+  const text = String(value ?? "").trim();
+  return text.replace(/^(\d{1,3}:\d{2}):\d{2}$/, "$1");
+}
+
 function readConfig() {
   const minTransfer = Math.max(0, Number(els.minTransfer.value || 0));
   const maxTransfer = Math.max(minTransfer, Number(els.maxTransfer.value || minTransfer));
@@ -434,14 +439,18 @@ function showDetail(leg, event) {
   const corridor = leg.route_name
     ? `<div class="detail-route">Corridor: ${escapeHtml(leg.route_name)}</div>`
     : "";
+  const departureTime = compactGtfsTime(leg.departure_time);
+  const arrivalTime = compactGtfsTime(leg.arrival_time);
   els.detailFrame.innerHTML = `
-    <div class="detail-title">${escapeHtml(train)} | ${escapeHtml(leg.departure_stop)} ${escapeHtml(leg.departure_time)} -> ${escapeHtml(leg.destination_stop)} ${escapeHtml(leg.arrival_time)}</div>
+    <div class="detail-title">${escapeHtml(train)} | ${escapeHtml(leg.departure_stop)} ${escapeHtml(departureTime)} -> ${escapeHtml(leg.destination_stop)} ${escapeHtml(arrivalTime)}</div>
     ${corridor}
     <div class="detail-stops">
       ${stops.map((stop) => {
-        const time = stop.arrival_time && stop.departure_time && stop.arrival_time !== stop.departure_time
-          ? `${stop.arrival_time} / ${stop.departure_time}`
-          : (stop.departure_time || stop.arrival_time);
+        const stopArrival = compactGtfsTime(stop.arrival_time);
+        const stopDeparture = compactGtfsTime(stop.departure_time);
+        const time = stopArrival && stopDeparture && stopArrival !== stopDeparture
+          ? `${stopArrival} / ${stopDeparture}`
+          : (stopDeparture || stopArrival);
         return `<div class="detail-stop ${stop.in_segment ? "active" : "context"}"><span>${escapeHtml(time)}</span><i></i><strong>${escapeHtml(stop.stop_name)}</strong></div>`;
       }).join("")}
     </div>

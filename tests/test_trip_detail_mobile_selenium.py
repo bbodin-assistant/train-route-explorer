@@ -136,6 +136,27 @@ class MobileTripDetailDismissalTest(unittest.TestCase):
         )
         self._open_trip_detail()
 
+        detail_density = self.driver.execute_script(
+            """
+            const rows = Array.from(document.querySelectorAll('.journey-detail-stop'));
+            const times = rows.map((row) => row.querySelector(':scope > span')?.textContent || '');
+            const timeSizes = rows
+              .map((row) => row.querySelector(':scope > span'))
+              .filter(Boolean)
+              .map((node) => parseFloat(getComputedStyle(node).fontSize));
+            const intermediate = rows.find((row) => row.classList.contains('journey-detail-intermediate'));
+            return {
+              hasSeconds: times.some((value) => /\d{1,3}:\d{2}:\d{2}/.test(value)),
+              maxTimeFontSize: Math.max(...timeSizes),
+              intermediateMinHeight: intermediate ? parseFloat(getComputedStyle(intermediate).minHeight) : null,
+            };
+            """
+        )
+        self.assertFalse(detail_density["hasSeconds"])
+        self.assertLessEqual(detail_density["maxTimeFontSize"], 10)
+        if detail_density["intermediateMinHeight"] is not None:
+            self.assertLessEqual(detail_density["intermediateMinHeight"], 26)
+
         geometry = self.driver.execute_script(
             """
             const frame = document.querySelector('#train-detail-frame');
