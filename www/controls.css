@@ -405,10 +405,10 @@
   main { padding: 0 0 12px; }
 
   .toolbar-primary {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
       "tabs menus"
-      "date date";
+      "date view";
     gap: 6px 8px;
     padding: 7px 8px;
   }
@@ -493,26 +493,41 @@
 
 @media (max-width: 900px) {
   .toolbar-switches {
+    display: contents;
+  }
+
+  .toolbar-switches #route-direction-tabs {
     grid-area: tabs;
-    display: grid;
-    grid-template-columns: minmax(0, 1.55fr) minmax(76px, 0.8fr);
-    gap: 5px;
     width: 100%;
+  }
+
+  .toolbar-switches .view-mode-tabs {
+    grid-area: view;
+    width: 96px;
+    justify-self: end;
+    align-self: center;
+  }
+
+  .day-control {
     min-width: 0;
   }
 
-  .toolbar-switches .tab-buttons {
-    grid-area: auto;
-    width: 100%;
+  .day-control input {
+    min-width: 0;
+    flex: 1 1 auto;
   }
 }
 
 @media (max-width: 520px) {
-  .toolbar-switches .tab-buttons {
-    width: 100%;
+  .toolbar-switches #route-direction-tabs button {
+    padding-inline: 6px;
   }
 
-  .toolbar-switches .tab-buttons button {
-    padding-inline: 6px;
+  .toolbar-switches .view-mode-tabs {
+    width: 92px;
+  }
+
+  .toolbar-switches .view-mode-tabs button {
+    padding-inline: 4px;
   }
 }
