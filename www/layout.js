@@ -1,6 +1,7 @@
 const routeSettings = document.querySelector(".route-settings-menu");
 const dataMenu = document.querySelector(".data-menu");
 const directionTabs = document.querySelector("#route-direction-tabs");
+const viewTabs = document.querySelector("#route-view-tabs");
 const timeline = document.querySelector("#routes-time-chart");
 const routeSummary = document.querySelector(".route-summary");
 const appHeader = document.querySelector(".app-header");
@@ -29,6 +30,8 @@ layoutEnhancementStyle.textContent = `
   .app-header > .day-control { justify-self: center; }
   .app-header .day-control input { width: 142px; }
   .header-tools { justify-self: end; gap: 6px !important; }
+  .header-tools .view-mode-tabs { width: 108px; flex: 0 0 auto; }
+  .header-tools .view-mode-tabs button { min-height: 28px; padding: 3px 8px; font-size: 10px; }
   .header-tools .toolbar-menus { display: flex; gap: 4px; }
 
   .header-tools .toolbar-menu summary,
@@ -304,6 +307,8 @@ layoutEnhancementStyle.textContent = `
     }
 
     .header-tools { grid-area: tools; }
+    .header-tools .view-mode-tabs { width: 82px; }
+    .header-tools .view-mode-tabs button { padding-inline: 4px; font-size: 9px; }
     .status { max-width: 22px !important; grid-template-columns: 8px !important; }
     #cache-status-text { display: none; }
     .status progress { display: none; }
@@ -364,6 +369,10 @@ function reorganizeHeader() {
 
   if (dayControl && dayControl.parentElement !== appHeader) {
     appHeader.insertBefore(dayControl, headerTools);
+  }
+
+  if (viewTabs && viewTabs.parentElement !== headerTools) {
+    headerTools.insertBefore(viewTabs, status || headerTools.firstChild);
   }
 
   if (toolbarMenus && toolbarMenus.parentElement !== headerTools) {
