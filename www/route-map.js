@@ -10,8 +10,11 @@ const MAP_WIDTH = 920;
 const MAP_HEIGHT = 620;
 const MAP_PADDING = 34;
 const MIN_MAP_ZOOM = 1;
-const MAX_MAP_ZOOM = 6;
 const LABEL_PADDING = 2;
+const LABEL_FONT_SIZE = 13;
+const LABEL_STROKE_WIDTH = 3.6;
+const MARKER_MAX_SCREEN_SCALE = 1.65;
+const MARKER_GROWTH_PER_ZOOM_DOUBLING = 0.24;
 const MAP_BOUNDS = {
   minLon: -5.8,
   maxLon: 10.2,
@@ -289,8 +292,12 @@ function zoomForViewBox(viewBox) {
 }
 
 function clampViewBox(viewBox) {
-  const width = clamp(viewBox.width, MAP_WIDTH / MAX_MAP_ZOOM, MAP_WIDTH);
-  const height = clamp(viewBox.height, MAP_HEIGHT / MAX_MAP_ZOOM, MAP_HEIGHT);
+  const width = Number.isFinite(viewBox.width) && viewBox.width > 0
+    ? Math.min(viewBox.width, MAP_WIDTH)
+    : MAP_WIDTH;
+  const height = Number.isFinite(viewBox.height) && viewBox.height > 0
+    ? Math.min(viewBox.height, MAP_HEIGHT)
+    : MAP_HEIGHT;
   return {
     x: clamp(viewBox.x, 0, MAP_WIDTH - width),
     y: clamp(viewBox.y, 0, MAP_HEIGHT - height),
@@ -350,8 +357,8 @@ function layoutStationLabels() {
   const labels = Array.from(svg.querySelectorAll("[data-map-label]"));
   for (const label of labels) {
     label.style.opacity = "0";
-    label.style.fontSize = `${(10 / zoom).toFixed(3)}px`;
-    label.style.strokeWidth = `${(3 / zoom).toFixed(3)}px`;
+    label.style.fontSize = `${(LABEL_FONT_SIZE / zoom).toFixed(3)}px`;
+    label.style.strokeWidth = `${(LABEL_STROKE_WIDTH / zoom).toFixed(3)}px`;
   }
 
   labels.sort((left, right) => {
@@ -404,13 +411,20 @@ function scheduleLabelLayout() {
   labelLayoutFrame = requestAnimationFrame(layoutStationLabels);
 }
 
+function markerScreenScale(zoom) {
+  const growth = 1 + Math.log2(Math.max(1, zoom)) * MARKER_GROWTH_PER_ZOOM_DOUBLING;
+  return Math.min(MARKER_MAX_SCREEN_SCALE, growth);
+}
+
 function applyMapVisualScale(svg) {
   const zoom = zoomForViewBox(currentViewBox(svg));
+  const screenScale = markerScreenScale(zoom);
+  svg.dataset.markerScale = screenScale.toFixed(3);
   for (const group of svg.querySelectorAll(".route-map-station")) {
     const circle = group.querySelector("circle");
     if (!circle) continue;
     const radius = group.classList.contains("search-station") ? 5.2 : 2.7;
-    circle.style.setProperty("r", `${(radius / zoom).toFixed(3)}px`);
+    circle.style.setProperty("r", `${(radius * screenScale / zoom).toFixed(3)}px`);
   }
 }
 
@@ -468,6 +482,7 @@ function installMapInteractions(svg) {
   activePointers.clear();
   pinchGesture = null;
   svg.dataset.pinchZoom = "enabled";
+  svg.dataset.touchPan = "enabled";
 
   svg.addEventListener("pointerdown", (event) => {
     if (event.pointerType !== "touch" || window.innerWidth > 900) return;
@@ -477,25 +492,40 @@ function installMapInteractions(svg) {
     } catch {
       // Synthetic browser tests may not have an active native pointer capture target.
     }
-    if (activePointers.size === 2) {
-      beginPinch(svg);
-      event.preventDefault();
-    }
+    if (activePointers.size === 2) beginPinch(svg);
+    event.preventDefault();
   });
 
   svg.addEventListener("pointermove", (event) => {
-    if (!activePointers.has(event.pointerId) || !pinchGesture) return;
+    const previous = activePointers.get(event.pointerId);
+    if (!previous) return;
+
     activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    if (activePointers.size !== 2) return;
+
+    if (activePointers.size === 1) {
+      const previousMapPoint = clientPointToMap(svg, previous.x, previous.y);
+      const currentMapPoint = clientPointToMap(svg, event.clientX, event.clientY);
+      if (previousMapPoint && currentMapPoint) {
+        const viewBox = currentViewBox(svg);
+        setMapViewBox(svg, {
+          ...viewBox,
+          x: viewBox.x + previousMapPoint.x - currentMapPoint.x,
+          y: viewBox.y + previousMapPoint.y - currentMapPoint.y,
+        });
+      }
+      event.preventDefault();
+      return;
+    }
+
+    if (activePointers.size !== 2 || !pinchGesture) return;
 
     const [first, second] = Array.from(activePointers.values());
     const distance = pointerDistance(first, second);
     if (!distance) return;
 
-    const targetZoom = clamp(
-      pinchGesture.zoom * (distance / pinchGesture.distance),
+    const targetZoom = Math.max(
       MIN_MAP_ZOOM,
-      MAX_MAP_ZOOM,
+      pinchGesture.zoom * (distance / pinchGesture.distance),
     );
     const width = MAP_WIDTH / targetZoom;
     const height = MAP_HEIGHT / targetZoom;

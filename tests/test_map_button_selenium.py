@@ -96,7 +96,7 @@ class MapButtonSeleniumTest(unittest.TestCase):
         )
 
 
-    def test_mobile_pinch_zoom_and_non_overlapping_city_labels(self):
+    def test_mobile_pan_unbounded_pinch_zoom_and_non_overlapping_city_labels(self):
         self.driver.set_window_size(390, 844)
         try:
             setup = self.driver.execute_async_script(
@@ -192,13 +192,25 @@ class MapButtonSeleniumTest(unittest.TestCase):
                         }
                       }
                     }
+                    const firstVisible = visible[0] || null;
+                    const paris = Array.from(svg.querySelectorAll('.route-map-station')).find(
+                      (group) => group.querySelector('title')?.textContent === 'Paris'
+                    );
+                    const parisCircle = paris?.querySelector('circle') || null;
                     return {
                       zoom: Number(svg.dataset.zoom || 1),
+                      viewBoxX: svg.viewBox.baseVal.x,
+                      viewBoxY: svg.viewBox.baseVal.y,
                       viewBoxWidth: svg.viewBox.baseVal.width,
                       totalLabels: labels.length,
                       visibleLabels: visible.length,
+                      visibleLabelHeight: firstVisible ? firstVisible.getBoundingClientRect().height : 0,
+                      labelFontSize: firstVisible ? parseFloat(getComputedStyle(firstVisible).fontSize) : 0,
+                      markerScale: Number(svg.dataset.markerScale || 1),
+                      parisMarkerDiameter: parisCircle ? parisCircle.getBoundingClientRect().width : 0,
                       overlaps,
                       touchAction: getComputedStyle(svg).touchAction,
+                      touchPan: svg.dataset.touchPan,
                     };
                     """
                 )
@@ -208,6 +220,10 @@ class MapButtonSeleniumTest(unittest.TestCase):
             self.assertGreater(before["visibleLabels"], 0)
             self.assertEqual(before["overlaps"], [])
             self.assertEqual(before["touchAction"], "none")
+            self.assertEqual(before["touchPan"], "enabled")
+            self.assertGreaterEqual(before["labelFontSize"], 12.5)
+            self.assertGreater(before["visibleLabelHeight"], 10)
+            self.assertAlmostEqual(before["markerScale"], 1.0, delta=0.05)
 
             pinch = self.driver.execute_script(
                 """
@@ -233,12 +249,12 @@ class MapButtonSeleniumTest(unittest.TestCase):
                 };
 
                 const initialWidth = svg.viewBox.baseVal.width;
-                dispatch('pointerdown', 1, centerX - 24, centerY);
-                dispatch('pointerdown', 2, centerX + 24, centerY);
-                dispatch('pointermove', 1, centerX - 82, centerY);
-                dispatch('pointermove', 2, centerX + 82, centerY);
-                dispatch('pointerup', 1, centerX - 82, centerY);
-                dispatch('pointerup', 2, centerX + 82, centerY);
+                dispatch('pointerdown', 1, centerX - 20, centerY);
+                dispatch('pointerdown', 2, centerX + 20, centerY);
+                dispatch('pointermove', 1, centerX - 220, centerY);
+                dispatch('pointermove', 2, centerX + 220, centerY);
+                dispatch('pointerup', 1, centerX - 220, centerY);
+                dispatch('pointerup', 2, centerX + 220, centerY);
 
                 return {
                   ok: true,
@@ -250,7 +266,11 @@ class MapButtonSeleniumTest(unittest.TestCase):
             )
             self.assertTrue(pinch.get("ok"), pinch)
             self.assertLess(pinch["finalWidth"], pinch["initialWidth"])
-            self.assertGreater(pinch["zoom"], 1)
+            self.assertGreater(
+                pinch["zoom"],
+                6,
+                f"Pinch zoom should not stop at the old 6× cap: {pinch}",
+            )
 
             self.wait.until(
                 lambda driver: driver.execute_script(
@@ -262,13 +282,66 @@ class MapButtonSeleniumTest(unittest.TestCase):
             )
 
             after = label_metrics()
-            self.assertGreater(after["zoom"], before["zoom"])
+            self.assertGreater(after["zoom"], 6)
             self.assertGreater(
                 after["visibleLabels"],
                 before["visibleLabels"],
                 f"Expected zooming to reveal more labels: before={before}, after={after}",
             )
             self.assertEqual(after["overlaps"], [])
+            self.assertGreater(after["markerScale"], before["markerScale"])
+            self.assertLessEqual(after["markerScale"], 1.66)
+            self.assertGreater(after["parisMarkerDiameter"], before["parisMarkerDiameter"])
+
+            pan = self.driver.execute_script(
+                """
+                const svg = document.querySelector('#routes-map .route-map-canvas');
+                const rect = svg.getBoundingClientRect();
+                const startX = rect.left + rect.width * 0.55;
+                const startY = rect.top + rect.height * 0.55;
+                const dispatch = (type, pointerId, clientX, clientY) => {
+                  svg.dispatchEvent(new PointerEvent(type, {
+                    bubbles: true,
+                    cancelable: true,
+                    pointerId,
+                    pointerType: 'touch',
+                    clientX,
+                    clientY,
+                  }));
+                };
+                const before = {
+                  x: svg.viewBox.baseVal.x,
+                  y: svg.viewBox.baseVal.y,
+                };
+                dispatch('pointerdown', 7, startX, startY);
+                dispatch('pointermove', 7, startX - 55, startY - 35);
+                dispatch('pointerup', 7, startX - 55, startY - 35);
+                return {
+                  before,
+                  after: {
+                    x: svg.viewBox.baseVal.x,
+                    y: svg.viewBox.baseVal.y,
+                  },
+                };
+                """
+            )
+            self.assertNotEqual(
+                (pan["before"]["x"], pan["before"]["y"]),
+                (pan["after"]["x"], pan["after"]["y"]),
+                f"One-finger drag should pan the map: {pan}",
+            )
+
+            self.wait.until(
+                lambda driver: driver.execute_script(
+                    """
+                    const svg = document.querySelector('#routes-map .route-map-canvas');
+                    return Boolean(svg && svg.dataset.labelsLaidOut === 'true');
+                    """
+                )
+            )
+            after_pan = label_metrics()
+            self.assertEqual(after_pan["overlaps"], [])
+            self.assertLessEqual(after_pan["markerScale"], 1.66)
         finally:
             self.driver.set_window_size(1440, 1000)
 
