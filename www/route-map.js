@@ -9,6 +9,9 @@ const { state } = app;
 const MAP_WIDTH = 920;
 const MAP_HEIGHT = 620;
 const MAP_PADDING = 34;
+const MIN_MAP_ZOOM = 1;
+const MAX_MAP_ZOOM = 6;
+const LABEL_PADDING = 2;
 const MAP_BOUNDS = {
   minLon: -5.8,
   maxLon: 10.2,
@@ -114,6 +117,8 @@ mapStyle.textContent = `
     stroke: #fffef9;
     stroke-width: 3px;
     stroke-linejoin: round;
+    opacity: 0;
+    pointer-events: none;
   }
 
   .route-map-summary {
@@ -176,6 +181,8 @@ mapStyle.textContent = `
 
     .route-map-canvas {
       min-height: 100%;
+      touch-action: none;
+      user-select: none;
     }
   }
 `;
@@ -183,6 +190,9 @@ document.head.append(mapStyle);
 
 let viewMode = "time";
 let renderFrame = null;
+let labelLayoutFrame = null;
+const activePointers = new Map();
+let pinchGesture = null;
 
 function escapeText(value) {
   return String(value ?? "")
@@ -262,6 +272,255 @@ function trainColor(type, fallbackIndex) {
   return `hsl(${Math.round((fallbackIndex * 137.508) % 360)} 62% 39%)`;
 }
 
+function clamp(value, minimum, maximum) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function currentViewBox(svg) {
+  const box = svg?.viewBox?.baseVal;
+  if (!box || !box.width || !box.height) {
+    return { x: 0, y: 0, width: MAP_WIDTH, height: MAP_HEIGHT };
+  }
+  return { x: box.x, y: box.y, width: box.width, height: box.height };
+}
+
+function zoomForViewBox(viewBox) {
+  return MAP_WIDTH / viewBox.width;
+}
+
+function clampViewBox(viewBox) {
+  const width = clamp(viewBox.width, MAP_WIDTH / MAX_MAP_ZOOM, MAP_WIDTH);
+  const height = clamp(viewBox.height, MAP_HEIGHT / MAX_MAP_ZOOM, MAP_HEIGHT);
+  return {
+    x: clamp(viewBox.x, 0, MAP_WIDTH - width),
+    y: clamp(viewBox.y, 0, MAP_HEIGHT - height),
+    width,
+    height,
+  };
+}
+
+function rectsOverlap(first, second, padding = LABEL_PADDING) {
+  return !(
+    first.right + padding <= second.left ||
+    first.left >= second.right + padding ||
+    first.bottom + padding <= second.top ||
+    first.top >= second.bottom + padding
+  );
+}
+
+function labelCandidates(pointX, zoom) {
+  const preferredSide = pointX > MAP_WIDTH / 2 ? -1 : 1;
+  const sides = [preferredSide, -preferredSide];
+  const horizontalOffset = 8 / zoom;
+  const upperBaseline = -6 / zoom;
+  const lowerBaseline = 12 / zoom;
+
+  return [
+    { x: sides[0] * horizontalOffset, y: upperBaseline, anchor: sides[0] > 0 ? "start" : "end" },
+    { x: sides[0] * horizontalOffset, y: lowerBaseline, anchor: sides[0] > 0 ? "start" : "end" },
+    { x: sides[1] * horizontalOffset, y: upperBaseline, anchor: sides[1] > 0 ? "start" : "end" },
+    { x: sides[1] * horizontalOffset, y: lowerBaseline, anchor: sides[1] > 0 ? "start" : "end" },
+    { x: 0, y: -9 / zoom, anchor: "middle" },
+    { x: 0, y: 16 / zoom, anchor: "middle" },
+  ];
+}
+
+function layoutStationLabels() {
+  labelLayoutFrame = null;
+  const svg = mapView?.querySelector(".route-map-canvas");
+  if (!svg || viewMode !== "map") return;
+
+  const svgRect = svg.getBoundingClientRect();
+  if (!svgRect.width || !svgRect.height) return;
+
+  const viewBox = currentViewBox(svg);
+  const zoom = zoomForViewBox(viewBox);
+  const occupied = [];
+  const summaryRect = mapView.querySelector(".route-map-summary")?.getBoundingClientRect();
+  if (
+    summaryRect &&
+    summaryRect.right > svgRect.left &&
+    summaryRect.left < svgRect.right &&
+    summaryRect.bottom > svgRect.top &&
+    summaryRect.top < svgRect.bottom
+  ) {
+    occupied.push(summaryRect);
+  }
+
+  const labels = Array.from(svg.querySelectorAll("[data-map-label]"));
+  for (const label of labels) {
+    label.style.opacity = "0";
+    label.style.fontSize = `${(10 / zoom).toFixed(3)}px`;
+    label.style.strokeWidth = `${(3 / zoom).toFixed(3)}px`;
+  }
+
+  labels.sort((left, right) => {
+    const leftRole = left.dataset.mapRole ? 0 : 1;
+    const rightRole = right.dataset.mapRole ? 0 : 1;
+    if (leftRole !== rightRole) return leftRole - rightRole;
+
+    const frequencyDifference =
+      Number(right.dataset.mapFrequency || 0) - Number(left.dataset.mapFrequency || 0);
+    if (frequencyDifference) return frequencyDifference;
+
+    return (left.textContent || "").length - (right.textContent || "").length;
+  });
+
+  let visibleLabels = 0;
+  for (const label of labels) {
+    const group = label.closest(".route-map-station");
+    const pointX = Number(group?.dataset.mapX);
+    if (!Number.isFinite(pointX)) continue;
+
+    for (const candidate of labelCandidates(pointX, zoom)) {
+      label.setAttribute("x", candidate.x.toFixed(3));
+      label.setAttribute("y", candidate.y.toFixed(3));
+      label.setAttribute("text-anchor", candidate.anchor);
+
+      const rect = label.getBoundingClientRect();
+      const insideCanvas =
+        rect.left >= svgRect.left + LABEL_PADDING &&
+        rect.right <= svgRect.right - LABEL_PADDING &&
+        rect.top >= svgRect.top + LABEL_PADDING &&
+        rect.bottom <= svgRect.bottom - LABEL_PADDING;
+      if (!insideCanvas || occupied.some((other) => rectsOverlap(rect, other))) continue;
+
+      label.style.opacity = "1";
+      occupied.push(rect);
+      visibleLabels += 1;
+      break;
+    }
+  }
+
+  svg.dataset.visibleLabels = String(visibleLabels);
+  svg.dataset.labelsLaidOut = "true";
+  svg.dataset.zoom = zoom.toFixed(3);
+}
+
+function scheduleLabelLayout() {
+  if (labelLayoutFrame !== null || viewMode !== "map") return;
+  labelLayoutFrame = requestAnimationFrame(layoutStationLabels);
+}
+
+function applyMapVisualScale(svg) {
+  const zoom = zoomForViewBox(currentViewBox(svg));
+  for (const group of svg.querySelectorAll(".route-map-station")) {
+    const circle = group.querySelector("circle");
+    if (!circle) continue;
+    const radius = group.classList.contains("search-station") ? 5.2 : 2.7;
+    circle.style.setProperty("r", `${(radius / zoom).toFixed(3)}px`);
+  }
+}
+
+function setMapViewBox(svg, nextViewBox) {
+  const viewBox = clampViewBox(nextViewBox);
+  svg.setAttribute(
+    "viewBox",
+    `${viewBox.x.toFixed(3)} ${viewBox.y.toFixed(3)} ${viewBox.width.toFixed(3)} ${viewBox.height.toFixed(3)}`,
+  );
+  svg.dataset.zoom = zoomForViewBox(viewBox).toFixed(3);
+  applyMapVisualScale(svg);
+  scheduleLabelLayout();
+}
+
+function clientPointToMap(svg, clientX, clientY) {
+  const point = svg.createSVGPoint();
+  point.x = clientX;
+  point.y = clientY;
+  const matrix = svg.getScreenCTM();
+  if (!matrix) return null;
+  return point.matrixTransform(matrix.inverse());
+}
+
+function pointerDistance(first, second) {
+  return Math.hypot(first.x - second.x, first.y - second.y);
+}
+
+function beginPinch(svg) {
+  if (activePointers.size !== 2) {
+    pinchGesture = null;
+    return;
+  }
+
+  const [first, second] = Array.from(activePointers.values());
+  const distance = pointerDistance(first, second);
+  if (!distance) return;
+
+  const midpoint = {
+    x: (first.x + second.x) / 2,
+    y: (first.y + second.y) / 2,
+  };
+  const anchor = clientPointToMap(svg, midpoint.x, midpoint.y);
+  if (!anchor) return;
+
+  const viewBox = currentViewBox(svg);
+  pinchGesture = {
+    distance,
+    viewBox,
+    anchor,
+    zoom: zoomForViewBox(viewBox),
+  };
+}
+
+function installMapInteractions(svg) {
+  activePointers.clear();
+  pinchGesture = null;
+  svg.dataset.pinchZoom = "enabled";
+
+  svg.addEventListener("pointerdown", (event) => {
+    if (event.pointerType !== "touch" || window.innerWidth > 900) return;
+    activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    try {
+      svg.setPointerCapture(event.pointerId);
+    } catch {
+      // Synthetic browser tests may not have an active native pointer capture target.
+    }
+    if (activePointers.size === 2) {
+      beginPinch(svg);
+      event.preventDefault();
+    }
+  });
+
+  svg.addEventListener("pointermove", (event) => {
+    if (!activePointers.has(event.pointerId) || !pinchGesture) return;
+    activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (activePointers.size !== 2) return;
+
+    const [first, second] = Array.from(activePointers.values());
+    const distance = pointerDistance(first, second);
+    if (!distance) return;
+
+    const targetZoom = clamp(
+      pinchGesture.zoom * (distance / pinchGesture.distance),
+      MIN_MAP_ZOOM,
+      MAX_MAP_ZOOM,
+    );
+    const width = MAP_WIDTH / targetZoom;
+    const height = MAP_HEIGHT / targetZoom;
+    const anchorFractionX =
+      (pinchGesture.anchor.x - pinchGesture.viewBox.x) / pinchGesture.viewBox.width;
+    const anchorFractionY =
+      (pinchGesture.anchor.y - pinchGesture.viewBox.y) / pinchGesture.viewBox.height;
+
+    setMapViewBox(svg, {
+      x: pinchGesture.anchor.x - anchorFractionX * width,
+      y: pinchGesture.anchor.y - anchorFractionY * height,
+      width,
+      height,
+    });
+    event.preventDefault();
+  });
+
+  const endPointer = (event) => {
+    activePointers.delete(event.pointerId);
+    if (activePointers.size < 2) pinchGesture = null;
+  };
+  svg.addEventListener("pointerup", endPointer);
+  svg.addEventListener("pointercancel", endPointer);
+
+  setMapViewBox(svg, { x: 0, y: 0, width: MAP_WIDTH, height: MAP_HEIGHT });
+}
+
 function renderMap() {
   if (!mapView || viewMode !== "map") return;
 
@@ -280,7 +539,8 @@ function renderMap() {
       const points = pointsForLeg(leg);
       if (points.length < 1) continue;
       for (const point of points) {
-        if (!stations.has(point.name)) stations.set(point.name, point);
+        if (!stations.has(point.name)) stations.set(point.name, { ...point, frequency: 0 });
+        stations.get(point.name).frequency += 1;
       }
       if (points.length > 1) {
         routeSegments.push({
@@ -308,15 +568,20 @@ function renderMap() {
     const point = project(station.lon, station.lat);
     const role = stationRole(station.name);
     const className = role ? `route-map-station search-station ${role}` : "route-map-station";
-    const anchor = point.x > MAP_WIDTH * 0.7 ? "end" : "start";
-    const labelX = anchor === "end" ? -8 : 8;
-    const label = role
-      ? `<text x="${labelX}" y="-7" text-anchor="${anchor}">${escapeText(station.name)}</text>`
-      : "";
     return `
-      <g class="${className}" transform="translate(${point.x.toFixed(1)} ${point.y.toFixed(1)})">
+      <g
+        class="${className}"
+        transform="translate(${point.x.toFixed(1)} ${point.y.toFixed(1)})"
+        data-map-x="${point.x.toFixed(3)}"
+        data-map-y="${point.y.toFixed(3)}"
+      >
         <circle r="${role ? 5.2 : 2.7}"><title>${escapeText(station.name)}</title></circle>
-        ${label}
+        <text
+          data-map-label
+          data-map-role="${escapeText(role)}"
+          data-map-frequency="${station.frequency}"
+          aria-hidden="true"
+        >${escapeText(station.name)}</text>
       </g>
     `;
   }).join("");
@@ -339,6 +604,10 @@ function renderMap() {
       <g class="route-map-stations">${stationHtml}</g>
     </svg>
   `;
+
+  const svg = mapView.querySelector(".route-map-canvas");
+  if (svg) installMapInteractions(svg);
+  scheduleLabelLayout();
 }
 
 function scheduleRender() {
