@@ -205,6 +205,52 @@ def test_55_saujon_massy_via_angouleme_current_service_day(self):
         f"Expected a Saujon → Massy TGV route via Angoulême on available service day {selected_day}",
     )
 
+    map_result = self.driver.execute_script(
+        """
+        const app = window.__saujonMassyApp;
+        const itineraries = app.state.selectedTab === 'back'
+          ? (app.state.routes.returns || [])
+          : (app.state.routes.outward || []);
+        const expectedStations = new Set();
+        let expectedRouteSegments = 0;
+        for (const itinerary of itineraries) {
+          for (const leg of itinerary.legs || []) {
+            const direct = Array.isArray(leg.path) ? leg.path : [];
+            const journey = Array.isArray(leg.journey_path)
+              ? leg.journey_path.filter((stop) => stop?.in_segment !== false)
+              : [];
+            const source = direct.length ? direct : journey;
+            const coordinateStops = source.filter(
+              (stop) => Number.isFinite(Number(stop?.lat)) && Number.isFinite(Number(stop?.lon))
+            );
+            for (const stop of coordinateStops) expectedStations.add(String(stop.stop_name || '—'));
+            if (coordinateStops.length > 1) expectedRouteSegments += 1;
+          }
+        }
+        document.querySelector('#route-view-tabs [data-view="map"]').click();
+        return {
+          expectedStations: expectedStations.size,
+          expectedRouteSegments,
+          actualStations: document.querySelectorAll('#routes-map .route-map-station').length,
+          actualRouteSegments: document.querySelectorAll('#routes-map .route-map-route').length,
+          mapHidden: document.querySelector('#routes-map').hidden,
+          timeHidden: document.querySelector('#routes-time-chart').hidden,
+        };
+        """
+    )
+    self.assertFalse(map_result["mapHidden"])
+    self.assertTrue(map_result["timeHidden"])
+    self.assertEqual(map_result["actualStations"], map_result["expectedStations"])
+    self.assertEqual(map_result["actualRouteSegments"], map_result["expectedRouteSegments"])
+    self.assertGreater(map_result["actualStations"], 0)
+    self.assertGreater(map_result["actualRouteSegments"], 0)
+    self.driver.execute_script(
+        "document.querySelector('#route-view-tabs [data-view=\"time\"]').click();"
+    )
+    self.assertFalse(
+        self.driver.execute_script("return document.querySelector('#routes-time-chart').hidden;")
+    )
+
     schedules = {}
     for row in visible:
         self.assertNotEqual(row["loop_invalid"], "true", row)
