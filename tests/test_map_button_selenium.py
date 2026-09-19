@@ -195,24 +195,27 @@ class MapButtonSeleniumTest(unittest.TestCase):
             self.assertEqual(opened["tabIndex"], "0")
             self.assertEqual(opened["role"], "button")
 
-            highlighted = self.driver.execute_script(
+            self.driver.execute_script(
                 """
                 document.querySelector(
                   '#routes-map [data-map-station-action="highlight"]'
                 ).click();
-                const stored = JSON.parse(
-                  localStorage.getItem('train-route-explorer-settings-v1') || '{}'
-                );
-                return {
-                  highlights: stored.highlights || [],
-                  highlightedClass: document.querySelector(
-                    '#routes-map .route-map-station[data-map-name="Tours"]'
-                  )?.classList.contains('highlighted') || false,
-                };
                 """
             )
-            self.assertIn("Tours", highlighted["highlights"], highlighted)
-            self.assertTrue(highlighted["highlightedClass"], highlighted)
+            self.wait.until(
+                lambda driver: driver.execute_script(
+                    """
+                    const stored = JSON.parse(
+                      localStorage.getItem('train-route-explorer-settings-v1') || '{}'
+                    );
+                    const highlighted = stored.highlights?.includes('Tours') || false;
+                    const highlightedClass = document.querySelector(
+                      '#routes-map .route-map-station[data-map-name="Tours"]'
+                    )?.classList.contains('highlighted') || false;
+                    return highlighted && highlightedClass;
+                    """
+                )
+            )
 
             via = self.driver.execute_script(
                 """
@@ -274,7 +277,6 @@ class MapButtonSeleniumTest(unittest.TestCase):
 
     def test_mobile_pan_unbounded_pinch_zoom_and_non_overlapping_city_labels(self):
         self.driver.set_window_size(390, 844)
-        self.driver.get(TEST_URL)
         try:
             setup = self.driver.execute_async_script(
                 """
