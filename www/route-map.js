@@ -20,6 +20,7 @@ const LABEL_SCREEN_FONT_SIZE = 13;
 const LABEL_SCREEN_STROKE_WIDTH = 2.5;
 const REGULAR_MARKER_SCREEN_RADIUS = 3.2;
 const SEARCH_MARKER_SCREEN_RADIUS = 5.2;
+const STATION_HIT_SCREEN_RADIUS = 13;
 const MARKER_MAX_SCREEN_SCALE = 1.65;
 const MARKER_GROWTH_PER_ZOOM_DOUBLING = 0.24;
 const MAP_BOUNDS = {
@@ -102,21 +103,40 @@ mapStyle.textContent = `
     vector-effect: non-scaling-stroke;
   }
 
-  .route-map-station circle {
+  .route-map-station {
+    cursor: pointer;
+  }
+
+  .route-map-station-marker {
     fill: #fffef9;
     stroke: #42515d;
     stroke-width: 1.4;
     vector-effect: non-scaling-stroke;
   }
 
-  .route-map-station.search-station circle {
+  .route-map-station-hit {
+    fill: transparent;
+    stroke: none;
+    pointer-events: all;
+  }
+
+  .route-map-station.search-station .route-map-station-marker {
     r: 5.2;
     stroke-width: 2.2;
   }
 
-  .route-map-station.departure circle { fill: #dbeafe; stroke: #2563eb; }
-  .route-map-station.via circle { fill: #fff2bf; stroke: #a16207; }
-  .route-map-station.arrival circle { fill: #dcfce7; stroke: #15803d; }
+  .route-map-station.departure .route-map-station-marker { fill: #dbeafe; stroke: #2563eb; }
+  .route-map-station.via .route-map-station-marker { fill: #fff2bf; stroke: #a16207; }
+  .route-map-station.arrival .route-map-station-marker { fill: #dcfce7; stroke: #15803d; }
+
+  .route-map-station.highlighted .route-map-station-marker {
+    stroke: #b7791f;
+    stroke-width: 3;
+  }
+
+  .route-map-station.selected .route-map-station-marker {
+    stroke-width: 3.4;
+  }
 
   .route-map-station text {
     fill: #26313a;
@@ -153,6 +173,85 @@ mapStyle.textContent = `
   .route-map-summary strong {
     color: #28343e;
     font-size: 11px;
+  }
+
+  .route-map-station-card {
+    position: absolute;
+    right: 12px;
+    bottom: 30px;
+    z-index: 5;
+    width: min(300px, calc(100% - 24px));
+    padding: 11px;
+    border: 1px solid #bfc7c4;
+    border-radius: 8px;
+    background: rgba(255, 254, 249, 0.97);
+    box-shadow: 0 8px 28px rgba(24, 32, 42, 0.18);
+    color: #39444d;
+    backdrop-filter: blur(8px);
+  }
+
+  .route-map-station-card[hidden] {
+    display: none;
+  }
+
+  .route-map-station-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .route-map-station-card h3 {
+    margin: 0;
+    color: #26313a;
+    font-size: 14px;
+    line-height: 1.25;
+  }
+
+  .route-map-station-card p {
+    margin: 4px 0 10px;
+    color: #727c84;
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+  .route-map-station-card-close {
+    min-width: 28px;
+    min-height: 28px;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: #69757d;
+    font-size: 18px;
+    line-height: 1;
+  }
+
+  .route-map-station-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+
+  .route-map-station-actions button {
+    min-height: 34px;
+    padding: 6px 8px;
+    border: 1px solid #c7cdca;
+    border-radius: 5px;
+    background: #f7f7f3;
+    color: #34414a;
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1.15;
+  }
+
+  .route-map-station-actions button:hover:not(:disabled) {
+    border-color: #89958f;
+    background: #fffef9;
+  }
+
+  .route-map-station-actions button:disabled {
+    opacity: 0.46;
+    cursor: default;
   }
 
   .route-map-attribution {
@@ -224,6 +323,18 @@ mapStyle.textContent = `
       touch-action: none;
       user-select: none;
     }
+
+    .route-map-station-card {
+      right: 10px;
+      bottom: 26px;
+      left: 10px;
+      width: auto;
+    }
+
+    .route-map-station-actions button {
+      min-height: 42px;
+      font-size: 11px;
+    }
   }
 `;
 document.head.append(mapStyle);
@@ -236,6 +347,8 @@ let panFrame = null;
 let pendingPan = null;
 const activePointers = new Map();
 let pinchGesture = null;
+let selectedStationName = "";
+let suppressStationClickUntil = 0;
 
 function escapeText(value) {
   return String(value ?? "")
@@ -424,15 +537,18 @@ function layoutStationLabels() {
   const zoom = zoomForViewBox(viewBox);
   const displayScale = svgDisplayScale(svg, viewBox);
   const occupied = [];
-  const summaryRect = mapView.querySelector(".route-map-summary")?.getBoundingClientRect();
-  if (
-    summaryRect &&
-    summaryRect.right > svgRect.left &&
-    summaryRect.left < svgRect.right &&
-    summaryRect.bottom > svgRect.top &&
-    summaryRect.top < svgRect.bottom
-  ) {
-    occupied.push(summaryRect);
+  for (const blocker of mapView.querySelectorAll(
+    ".route-map-summary, .route-map-station-card:not([hidden])",
+  )) {
+    const blockerRect = blocker.getBoundingClientRect();
+    if (
+      blockerRect.right > svgRect.left
+      && blockerRect.left < svgRect.right
+      && blockerRect.bottom > svgRect.top
+      && blockerRect.top < svgRect.bottom
+    ) {
+      occupied.push(blockerRect);
+    }
   }
 
   const labels = Array.from(svg.querySelectorAll("[data-map-label]"));
@@ -648,14 +764,19 @@ function applyMapVisualScale(svg) {
   const screenScale = markerScreenScale(zoom);
   svg.dataset.markerScale = screenScale.toFixed(3);
   for (const group of svg.querySelectorAll(".route-map-station")) {
-    const circle = group.querySelector("circle");
-    if (!circle) continue;
+    const marker = group.querySelector(".route-map-station-marker");
+    const hit = group.querySelector(".route-map-station-hit");
+    if (!marker || !hit) continue;
     const screenRadius = group.classList.contains("search-station")
       ? SEARCH_MARKER_SCREEN_RADIUS
       : REGULAR_MARKER_SCREEN_RADIUS;
-    circle.style.setProperty(
+    marker.style.setProperty(
       "r",
       `${(screenRadius * screenScale / displayScale).toFixed(3)}px`,
+    );
+    hit.style.setProperty(
+      "r",
+      `${(STATION_HIT_SCREEN_RADIUS / displayScale).toFixed(3)}px`,
     );
   }
 }
@@ -731,6 +852,147 @@ function flushPendingPan(svg) {
   applyPendingPan(svg);
 }
 
+function departureRoleForDirection() {
+  return state.selectedTab === "back" ? "side_b_destinations" : "local_origins";
+}
+
+function arrivalRoleForDirection() {
+  return state.selectedTab === "back" ? "local_origins" : "side_b_destinations";
+}
+
+function stationRoleLabel(name) {
+  const role = stationRole(name);
+  if (role === "departure") return "Current departure station";
+  if (role === "arrival") return "Current arrival station";
+  if (role === "via") return "Current via station";
+  return "Station on displayed routes";
+}
+
+function closeStationCard() {
+  selectedStationName = "";
+  const card = mapView?.querySelector(".route-map-station-card");
+  if (card) card.hidden = true;
+  for (const group of mapView?.querySelectorAll(".route-map-station.selected") || []) {
+    group.classList.remove("selected");
+  }
+  scheduleLabelLayout();
+}
+
+function showStationCard(name) {
+  const card = mapView?.querySelector(".route-map-station-card");
+  const svg = mapView?.querySelector(".route-map-canvas");
+  if (!card || !svg) return;
+  const group = Array.from(svg.querySelectorAll(".route-map-station")).find(
+    (candidate) => candidate.dataset.mapName === name,
+  );
+  if (!group) {
+    closeStationCard();
+    return;
+  }
+
+  selectedStationName = name;
+  for (const candidate of svg.querySelectorAll(".route-map-station")) {
+    candidate.classList.toggle("selected", candidate === group);
+  }
+
+  const frequency = Math.max(1, Number(group.dataset.mapFrequency || 1));
+  const heading = card.querySelector("[data-map-station-title]");
+  const detail = card.querySelector("[data-map-station-detail]");
+  const departureButton = card.querySelector('[data-map-station-action="departure"]');
+  const viaButton = card.querySelector('[data-map-station-action="via"]');
+  const arrivalButton = card.querySelector('[data-map-station-action="arrival"]');
+  const highlightButton = card.querySelector('[data-map-station-action="highlight"]');
+
+  if (heading) heading.textContent = name;
+  if (detail) {
+    detail.textContent = `${stationRoleLabel(name)} · shown in ${frequency} route leg${frequency === 1 ? "" : "s"}`;
+  }
+
+  const departureRole = departureRoleForDirection();
+  const arrivalRole = arrivalRoleForDirection();
+  if (departureButton) {
+    departureButton.disabled = (
+      state.config[departureRole]?.length === 1
+      && state.config[departureRole][0] === name
+    );
+  }
+  if (arrivalButton) {
+    arrivalButton.disabled = (
+      state.config[arrivalRole]?.length === 1
+      && state.config[arrivalRole][0] === name
+    );
+  }
+  if (viaButton) {
+    viaButton.textContent = state.config.connection_stations.includes(name)
+      ? "Remove via"
+      : "Add via";
+  }
+  if (highlightButton) {
+    highlightButton.textContent = state.highlights.includes(name)
+      ? "Unhighlight"
+      : "Highlight";
+  }
+
+  card.hidden = false;
+  scheduleLabelLayout();
+}
+
+function refreshStationSelectors() {
+  app.renderStationPickers(state.context?.station_names || [], state.config);
+}
+
+function applyStationRouteAction(name, action) {
+  let role = "";
+  if (action === "departure") role = departureRoleForDirection();
+  if (action === "arrival") role = arrivalRoleForDirection();
+
+  if (role) {
+    if (state.config[role]?.length === 1 && state.config[role][0] === name) return;
+    state.config[role] = [name];
+  } else if (action === "via") {
+    const stations = new Set(state.config.connection_stations || []);
+    if (stations.has(name)) {
+      stations.delete(name);
+    } else {
+      stations.add(name);
+    }
+    state.config.connection_stations = Array.from(stations).sort((left, right) =>
+      left.localeCompare(right)
+    );
+  } else {
+    return;
+  }
+
+  app.saveSettings();
+  refreshStationSelectors();
+  app.showRefreshNotice();
+  showStationCard(name);
+}
+
+function toggleMapStationHighlight(name) {
+  const highlights = new Set(state.highlights || []);
+  if (highlights.has(name)) {
+    highlights.delete(name);
+  } else {
+    highlights.add(name);
+  }
+  state.highlights = Array.from(highlights).sort((left, right) => left.localeCompare(right));
+  app.saveSettings();
+  refreshStationSelectors();
+
+  if (state.settingsDirty || state.refreshInFlight) {
+    app.renderRefreshNotice();
+  } else {
+    app.renderCurrentTab();
+  }
+
+  const group = Array.from(mapView?.querySelectorAll(".route-map-station") || []).find(
+    (candidate) => candidate.dataset.mapName === name,
+  );
+  group?.classList.toggle("highlighted", state.highlights.includes(name));
+  showStationCard(name);
+}
+
 function beginPinch(svg) {
   if (activePointers.size !== 2) {
     pinchGesture = null;
@@ -780,6 +1042,9 @@ function installMapInteractions(svg) {
     activePointers.set(event.pointerId, {
       x: event.clientX,
       y: event.clientY,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
       pointerType: event.pointerType,
     });
     svg.dataset.dragging = "true";
@@ -789,6 +1054,7 @@ function installMapInteractions(svg) {
       // Synthetic browser tests may not have an active native pointer capture target.
     }
     if (activePointers.size === 2) {
+      suppressStationClickUntil = performance.now() + 350;
       flushPendingPan(svg);
       beginPinch(svg);
     }
@@ -799,9 +1065,17 @@ function installMapInteractions(svg) {
     const previous = activePointers.get(event.pointerId);
     if (!previous) return;
 
+    const moved = previous.moved || Math.hypot(
+      event.clientX - previous.startX,
+      event.clientY - previous.startY,
+    ) > 5;
+    if (moved) suppressStationClickUntil = performance.now() + 350;
     activePointers.set(event.pointerId, {
       x: event.clientX,
       y: event.clientY,
+      startX: previous.startX,
+      startY: previous.startY,
+      moved,
       pointerType: previous.pointerType,
     });
 
@@ -929,15 +1203,28 @@ function renderMap() {
   const stationHtml = Array.from(stations.values(), (station) => {
     const point = project(station.lon, station.lat);
     const role = stationRole(station.name);
-    const className = role ? `route-map-station search-station ${role}` : "route-map-station";
+    const highlighted = state.highlights.includes(station.name);
+    const className = [
+      "route-map-station",
+      role ? "search-station" : "",
+      role,
+      highlighted ? "highlighted" : "",
+      selectedStationName === station.name ? "selected" : "",
+    ].filter(Boolean).join(" ");
     return `
       <g
         class="${className}"
         transform="translate(${point.x.toFixed(1)} ${point.y.toFixed(1)})"
+        data-map-name="${escapeText(station.name)}"
+        data-map-frequency="${station.frequency}"
         data-map-x="${point.x.toFixed(3)}"
         data-map-y="${point.y.toFixed(3)}"
+        role="button"
+        tabindex="0"
+        aria-label="Open actions for ${escapeText(station.name)}"
       >
-        <circle r="${role ? 5.2 : 2.7}"><title>${escapeText(station.name)}</title></circle>
+        <circle class="route-map-station-marker" r="${role ? 5.2 : 2.7}"><title>${escapeText(station.name)}</title></circle>
+        <circle class="route-map-station-hit" r="13" aria-hidden="true"></circle>
         <text
           data-map-label
           data-map-role="${escapeText(role)}"
@@ -959,6 +1246,26 @@ function renderMap() {
         <span class="arrival"><i aria-hidden="true"></i>Arrival</span>
       </span>
     </div>
+    <aside class="route-map-station-card" hidden aria-label="Station actions">
+      <div class="route-map-station-card-head">
+        <div>
+          <h3 data-map-station-title></h3>
+          <p data-map-station-detail></p>
+        </div>
+        <button
+          type="button"
+          class="route-map-station-card-close"
+          data-map-station-action="close"
+          aria-label="Close station actions"
+        >×</button>
+      </div>
+      <div class="route-map-station-actions">
+        <button type="button" data-map-station-action="departure">Depart from here</button>
+        <button type="button" data-map-station-action="arrival">Arrive here</button>
+        <button type="button" data-map-station-action="via">Add via</button>
+        <button type="button" data-map-station-action="highlight">Highlight</button>
+      </div>
+    </aside>
     <a
       class="route-map-attribution"
       href="https://www.openstreetmap.org/copyright"
@@ -977,6 +1284,11 @@ function renderMap() {
     applyMapStyle(svg);
     installMapInteractions(svg);
     renderOsmTiles(svg);
+  }
+  if (selectedStationName && stations.has(selectedStationName)) {
+    showStationCard(selectedStationName);
+  } else if (selectedStationName) {
+    selectedStationName = "";
   }
   scheduleLabelLayout();
 }
@@ -1005,6 +1317,47 @@ viewTabs?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-view]");
   if (!button) return;
   setViewMode(button.dataset.view);
+});
+
+mapView?.addEventListener("click", (event) => {
+  const action = event.target.closest?.("[data-map-station-action]");
+  if (action) {
+    event.preventDefault();
+    event.stopPropagation();
+    const actionName = action.dataset.mapStationAction;
+    if (actionName === "close") {
+      closeStationCard();
+      return;
+    }
+    if (!selectedStationName) return;
+    if (actionName === "highlight") {
+      toggleMapStationHighlight(selectedStationName);
+      return;
+    }
+    applyStationRouteAction(selectedStationName, actionName);
+    return;
+  }
+
+  const station = event.target.closest?.(".route-map-station");
+  if (station) {
+    if (performance.now() < suppressStationClickUntil) return;
+    showStationCard(station.dataset.mapName || "");
+    return;
+  }
+
+  if (!event.target.closest?.(".route-map-station-card")) closeStationCard();
+});
+
+mapView?.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeStationCard();
+    return;
+  }
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const station = event.target.closest?.(".route-map-station");
+  if (!station) return;
+  event.preventDefault();
+  showStationCard(station.dataset.mapName || "");
 });
 
 directionTabs?.addEventListener("click", () => requestAnimationFrame(scheduleRender));

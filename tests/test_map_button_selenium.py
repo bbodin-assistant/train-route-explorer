@@ -96,8 +96,185 @@ class MapButtonSeleniumTest(unittest.TestCase):
         )
 
 
+    def test_station_click_opens_useful_actions(self):
+        self.driver.set_window_size(1200, 900)
+        self.driver.get(TEST_URL)
+
+        setup = self.driver.execute_async_script(
+            """
+            const done = arguments[0];
+            const originalSettings = localStorage.getItem('train-route-explorer-settings-v1');
+            const appUrl = document.querySelector('script[type="module"][src*="app.js"]')?.src;
+            if (!appUrl) {
+              done({ ok: false, error: 'App module script was not found' });
+              return;
+            }
+
+            import(appUrl).then(({ app }) => {
+              const stationNames = ['Paris', 'Tours', 'Bordeaux'];
+              app.state.context = {
+                ...(app.state.context || {}),
+                station_names: stationNames,
+              };
+              app.state.selectedTab = 'out';
+              app.state.highlights = [];
+              app.state.config = {
+                ...app.state.config,
+                local_origins: ['Paris'],
+                connection_stations: [],
+                side_b_destinations: ['Bordeaux'],
+              };
+              app.renderStationPickers(stationNames, app.state.config);
+              app.state.routes = {
+                ...app.state.routes,
+                outward: [{
+                  legs: [{
+                    train_type: 'TGV INOUI',
+                    train_number: 'CLICK',
+                    path: [
+                      { stop_name: 'Paris', lat: 48.8566, lon: 2.3522 },
+                      { stop_name: 'Tours', lat: 47.3941, lon: 0.6848 },
+                      { stop_name: 'Bordeaux', lat: 44.8378, lon: -0.5792 },
+                    ],
+                  }],
+                }],
+                returns: [],
+              };
+              done({ ok: true, originalSettings });
+            }).catch((error) => done({ ok: false, error: String(error) }));
+            """
+        )
+        self.assertTrue(setup.get("ok"), setup)
+
+        try:
+            self.wait.until(
+                EC.element_to_be_clickable(
+                    (By.CSS_SELECTOR, '#route-view-tabs [data-view="map"]')
+                )
+            ).click()
+            self.wait.until(
+                lambda driver: driver.execute_script(
+                    """
+                    return Boolean(document.querySelector(
+                      '#routes-map .route-map-station[data-map-name="Tours"]'
+                    ));
+                    """
+                )
+            )
+
+            opened = self.driver.execute_script(
+                """
+                const station = document.querySelector(
+                  '#routes-map .route-map-station[data-map-name="Tours"]'
+                );
+                station.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                const card = document.querySelector('#routes-map .route-map-station-card');
+                const actions = Array.from(
+                  card.querySelectorAll('[data-map-station-action]')
+                ).map((button) => button.textContent.trim()).filter(Boolean);
+                const hit = station.querySelector('.route-map-station-hit');
+                return {
+                  hidden: card.hidden,
+                  title: card.querySelector('[data-map-station-title]')?.textContent || '',
+                  detail: card.querySelector('[data-map-station-detail]')?.textContent || '',
+                  actions,
+                  hitWidth: hit?.getBoundingClientRect().width || 0,
+                  tabIndex: station.getAttribute('tabindex'),
+                  role: station.getAttribute('role'),
+                };
+                """
+            )
+            self.assertFalse(opened["hidden"], opened)
+            self.assertEqual(opened["title"], "Tours")
+            self.assertIn("shown in 1 route leg", opened["detail"])
+            self.assertIn("Depart from here", opened["actions"])
+            self.assertIn("Arrive here", opened["actions"])
+            self.assertIn("Add via", opened["actions"])
+            self.assertIn("Highlight", opened["actions"])
+            self.assertGreaterEqual(opened["hitWidth"], 24, opened)
+            self.assertEqual(opened["tabIndex"], "0")
+            self.assertEqual(opened["role"], "button")
+
+            highlighted = self.driver.execute_script(
+                """
+                document.querySelector(
+                  '#routes-map [data-map-station-action="highlight"]'
+                ).click();
+                const stored = JSON.parse(
+                  localStorage.getItem('train-route-explorer-settings-v1') || '{}'
+                );
+                return {
+                  highlights: stored.highlights || [],
+                  highlightedClass: document.querySelector(
+                    '#routes-map .route-map-station[data-map-name="Tours"]'
+                  )?.classList.contains('highlighted') || false,
+                };
+                """
+            )
+            self.assertIn("Tours", highlighted["highlights"], highlighted)
+            self.assertTrue(highlighted["highlightedClass"], highlighted)
+
+            via = self.driver.execute_script(
+                """
+                document.querySelector(
+                  '#routes-map [data-map-station-action="via"]'
+                ).click();
+                const stored = JSON.parse(
+                  localStorage.getItem('train-route-explorer-settings-v1') || '{}'
+                );
+                return stored.config?.connection_stations || [];
+                """
+            )
+            self.assertIn("Tours", via, via)
+
+            departure = self.driver.execute_script(
+                """
+                const station = document.querySelector(
+                  '#routes-map .route-map-station[data-map-name="Tours"]'
+                );
+                station.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                document.querySelector(
+                  '#routes-map [data-map-station-action="departure"]'
+                ).click();
+                return JSON.parse(
+                  localStorage.getItem('train-route-explorer-settings-v1') || '{}'
+                ).config?.local_origins || [];
+                """
+            )
+            self.assertEqual(departure, ["Tours"])
+
+            arrival = self.driver.execute_script(
+                """
+                const station = document.querySelector(
+                  '#routes-map .route-map-station[data-map-name="Tours"]'
+                );
+                station.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                document.querySelector(
+                  '#routes-map [data-map-station-action="arrival"]'
+                ).click();
+                return JSON.parse(
+                  localStorage.getItem('train-route-explorer-settings-v1') || '{}'
+                ).config?.side_b_destinations || [];
+                """
+            )
+            self.assertEqual(arrival, ["Tours"])
+        finally:
+            self.driver.execute_script(
+                """
+                const original = arguments[0];
+                if (original === null) {
+                  localStorage.removeItem('train-route-explorer-settings-v1');
+                } else {
+                  localStorage.setItem('train-route-explorer-settings-v1', original);
+                }
+                """,
+                setup.get("originalSettings"),
+            )
+
+
     def test_mobile_pan_unbounded_pinch_zoom_and_non_overlapping_city_labels(self):
         self.driver.set_window_size(390, 844)
+        self.driver.get(TEST_URL)
         try:
             setup = self.driver.execute_async_script(
                 """
