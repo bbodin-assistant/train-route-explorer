@@ -138,7 +138,17 @@ class MapButtonSeleniumTest(unittest.TestCase):
                     ],
                   }],
                 }],
-                returns: [],
+                returns: [{
+                  legs: [{
+                    train_type: 'TGV INOUI',
+                    train_number: 'CLICK-RETURN',
+                    path: [
+                      { stop_name: 'Bordeaux', lat: 44.8378, lon: -0.5792 },
+                      { stop_name: 'Tours', lat: 47.3941, lon: 0.6848 },
+                      { stop_name: 'Paris', lat: 48.8566, lon: 2.3522 },
+                    ],
+                  }],
+                }],
               };
               done({ ok: true, originalSettings });
             }).catch((error) => done({ ok: false, error: String(error) }));
@@ -161,6 +171,61 @@ class MapButtonSeleniumTest(unittest.TestCase):
                     """
                 )
             )
+
+            direction_toggle = self.driver.execute_script(
+                """
+                const toggle = document.querySelector('#routes-map .route-map-direction-switch');
+                const buttons = Array.from(toggle?.querySelectorAll('[data-map-direction]') || []);
+                const rect = toggle?.getBoundingClientRect();
+                return {
+                  visible: Boolean(rect && rect.width > 0 && rect.height > 0),
+                  labels: buttons.map((button) => button.textContent.trim()),
+                  selected: buttons.filter((button) => button.classList.contains('selected'))
+                    .map((button) => button.dataset.mapDirection),
+                };
+                """
+            )
+            self.assertTrue(direction_toggle["visible"], direction_toggle)
+            self.assertEqual(
+                direction_toggle["labels"],
+                ["Departure → Arrival", "Arrival → Departure"],
+                direction_toggle,
+            )
+            self.assertEqual(direction_toggle["selected"], ["out"], direction_toggle)
+
+            self.driver.execute_script(
+                """
+                document.querySelector(
+                  '#routes-map [data-map-direction="back"]'
+                ).click();
+                """
+            )
+            self.wait.until(
+                lambda driver: driver.execute_script(
+                    """
+                    return Boolean(
+                      document.querySelector('#routes-map [data-map-direction="back"].selected')
+                      && document.querySelector(
+                        '#routes-map .route-map-station[data-map-name="Tours"]'
+                      )
+                    );
+                    """
+                )
+            )
+            reverse_roles = self.driver.execute_script(
+                """
+                return {
+                  departureIsDeparture: document.querySelector(
+                    '#routes-map .route-map-station[data-map-name="Paris"]'
+                  )?.classList.contains('departure') || false,
+                  arrivalIsArrival: document.querySelector(
+                    '#routes-map .route-map-station[data-map-name="Bordeaux"]'
+                  )?.classList.contains('arrival') || false,
+                };
+                """
+            )
+            self.assertTrue(reverse_roles["departureIsDeparture"], reverse_roles)
+            self.assertTrue(reverse_roles["arrivalIsArrival"], reverse_roles)
 
             self.driver.find_element(
                 By.CSS_SELECTOR,
@@ -224,7 +289,7 @@ class MapButtonSeleniumTest(unittest.TestCase):
                 )
             )
 
-            role_actions = self.driver.execute_script(
+            departure_action = self.driver.execute_script(
                 """
                 document.querySelector(
                   '#routes-map [data-map-station-action="via"]'
@@ -232,6 +297,29 @@ class MapButtonSeleniumTest(unittest.TestCase):
                 document.querySelector(
                   '#routes-map [data-map-station-action="departure"]'
                 ).click();
+                return JSON.parse(
+                  localStorage.getItem('train-route-explorer-settings-v1') || '{}'
+                ).config || {};
+                """
+            )
+            self.assertEqual(
+                departure_action.get("local_origins"),
+                ["Tours"],
+                departure_action,
+            )
+            self.assertEqual(
+                departure_action.get("side_b_destinations"),
+                ["Bordeaux"],
+                departure_action,
+            )
+            self.assertIn(
+                "Tours",
+                departure_action.get("connection_stations", []),
+                departure_action,
+            )
+
+            arrival_action = self.driver.execute_script(
+                """
                 document.querySelector(
                   '#routes-map [data-map-station-action="arrival"]'
                 ).click();
@@ -240,9 +328,12 @@ class MapButtonSeleniumTest(unittest.TestCase):
                 ).config || {};
                 """
             )
-            self.assertEqual(role_actions.get("local_origins"), ["Tours"], role_actions)
-            self.assertEqual(role_actions.get("side_b_destinations"), ["Tours"], role_actions)
-            self.assertIn("Tours", role_actions.get("connection_stations", []), role_actions)
+            self.assertEqual(arrival_action.get("local_origins"), ["Tours"], arrival_action)
+            self.assertEqual(
+                arrival_action.get("side_b_destinations"),
+                ["Tours"],
+                arrival_action,
+            )
         finally:
             self.driver.execute_script(
                 """

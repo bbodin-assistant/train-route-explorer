@@ -177,6 +177,38 @@ mapStyle.textContent = `
     font-size: 11px;
   }
 
+  .route-map-direction-switch {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: min(260px, calc(100vw - 56px));
+    padding: 2px;
+    border: 1px solid #b7bec1;
+    border-radius: 999px;
+    background: #eef0ed;
+  }
+
+  .route-map-direction-switch button {
+    min-height: 26px;
+    border: 0;
+    border-radius: 999px;
+    padding: 3px 9px;
+    background: transparent;
+    color: #677078;
+    font-size: 10px;
+    font-weight: 750;
+    line-height: 1.1;
+    white-space: nowrap;
+  }
+
+  .route-map-direction-switch button:hover {
+    background: rgba(255, 255, 255, 0.55);
+  }
+
+  .route-map-direction-switch button.selected {
+    background: #1e2832;
+    color: #fff;
+  }
+
   .route-map-station-card {
     position: absolute;
     right: 12px;
@@ -445,15 +477,8 @@ function activeItineraries() {
 }
 
 function stationRole(name) {
-  const departureNames = state.selectedTab === "back"
-    ? state.config.side_b_destinations
-    : state.config.local_origins;
-  const arrivalNames = state.selectedTab === "back"
-    ? state.config.local_origins
-    : state.config.side_b_destinations;
-
-  if (departureNames.includes(name)) return "departure";
-  if (arrivalNames.includes(name)) return "arrival";
+  if (state.config.local_origins.includes(name)) return "departure";
+  if (state.config.side_b_destinations.includes(name)) return "arrival";
   if (state.config.connection_stations.includes(name)) return "via";
   return "";
 }
@@ -854,11 +879,11 @@ function flushPendingPan(svg) {
 }
 
 function departureRoleForDirection() {
-  return state.selectedTab === "back" ? "side_b_destinations" : "local_origins";
+  return "local_origins";
 }
 
 function arrivalRoleForDirection() {
-  return state.selectedTab === "back" ? "local_origins" : "side_b_destinations";
+  return "side_b_destinations";
 }
 
 function stationRoleLabel(name) {
@@ -1191,12 +1216,28 @@ function installMapInteractions(svg) {
   setMapViewBox(svg, { x: 0, y: 0, width: MAP_WIDTH, height: MAP_HEIGHT });
 }
 
+function mapDirectionSwitchHtml() {
+  const buttons = Array.from(directionTabs?.querySelectorAll("[data-tab]") || []).map((sourceButton) => {
+    const selected = sourceButton.dataset.tab === state.selectedTab;
+    return `<button type="button" data-map-direction="${escapeText(sourceButton.dataset.tab)}" class="${selected ? "selected" : ""}" aria-pressed="${selected}">${escapeText(sourceButton.textContent.trim())}</button>`;
+  }).join("");
+
+  return `<div class="route-map-direction-switch" role="group" aria-label="Journey direction">${buttons}</div>`;
+}
+
 function renderMap() {
   if (!mapView || viewMode !== "map") return;
 
   const itineraries = activeItineraries();
+  const directionSwitchHtml = mapDirectionSwitchHtml();
   if (!itineraries.length) {
-    mapView.innerHTML = '<div class="route-map-empty">No matching routes to display on the map.</div>';
+    mapView.innerHTML = `
+      <div class="route-map-summary">
+        ${directionSwitchHtml}
+        <span>0 routes</span>
+      </div>
+      <div class="route-map-empty">No matching routes to display on the map.</div>
+    `;
     return;
   }
 
@@ -1269,10 +1310,9 @@ function renderMap() {
     `;
   }).join("");
 
-  const directionLabel = state.selectedTab === "back" ? "Arrival \u2192 Departure" : "Departure \u2192 Arrival";
   mapView.innerHTML = `
     <div class="route-map-summary">
-      <strong>${escapeText(directionLabel)}</strong>
+      ${directionSwitchHtml}
       <span>${itineraries.length} route${itineraries.length === 1 ? "" : "s"} · ${stations.size} station${stations.size === 1 ? "" : "s"}</span>
       <span class="route-map-legend" aria-label="Search station roles">
         <span class="departure"><i aria-hidden="true"></i>Departure</span>
@@ -1354,6 +1394,17 @@ viewTabs?.addEventListener("click", (event) => {
 });
 
 mapView?.addEventListener("click", (event) => {
+  const directionButton = event.target.closest?.("[data-map-direction]");
+  if (directionButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    const sourceButton = directionTabs?.querySelector(
+      `[data-tab="${directionButton.dataset.mapDirection}"]`,
+    );
+    sourceButton?.click();
+    return;
+  }
+
   const action = event.target.closest?.("[data-map-station-action]");
   if (action) {
     event.preventDefault();
