@@ -451,7 +451,7 @@
   .route-settings-menu summary::after { content: "Settings"; font-size: 11px; }
 
   .route-summary {
-    grid-template-columns: 1fr 18px 1fr;
+    grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
     grid-template-areas:
       "depart arrow1 arrival"
       "via via via";
