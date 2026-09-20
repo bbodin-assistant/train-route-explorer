@@ -350,7 +350,6 @@ let pendingPan = null;
 const activePointers = new Map();
 let pinchGesture = null;
 let selectedStationName = "";
-let suppressStationClickUntil = 0;
 
 function escapeText(value) {
   return String(value ?? "")
@@ -1058,7 +1057,9 @@ function installMapInteractions(svg) {
       // Synthetic browser tests may not have an active native pointer capture target.
     }
     if (activePointers.size === 2) {
-      suppressStationClickUntil = performance.now() + 350;
+      // Once a second pointer joins, neither pointerup should be treated as
+      // a station tap, even if only one finger actually moved.
+      for (const pointer of activePointers.values()) pointer.moved = true;
       flushPendingPan(svg);
       beginPinch(svg);
     }
@@ -1073,7 +1074,6 @@ function installMapInteractions(svg) {
       event.clientX - previous.startX,
       event.clientY - previous.startY,
     ) > 5;
-    if (moved) suppressStationClickUntil = performance.now() + 350;
     activePointers.set(event.pointerId, {
       x: event.clientX,
       y: event.clientY,
@@ -1125,7 +1125,6 @@ function installMapInteractions(svg) {
       && pointer
       && !pointer.moved
       && pointer.stationName
-      && performance.now() >= suppressStationClickUntil
     );
 
     flushPendingPan(svg);
@@ -1139,9 +1138,6 @@ function installMapInteractions(svg) {
 
     if (shouldActivateStation) {
       showStationCard(pointer.stationName);
-      // Pointer capture can still be followed by a click event on some browsers.
-      // Ignore that duplicate click; pointerup is the canonical station activation.
-      suppressStationClickUntil = performance.now() + 100;
     }
   };
   svg.addEventListener("pointerup", endPointer);
@@ -1370,7 +1366,6 @@ mapView?.addEventListener("click", (event) => {
 
   const station = event.target.closest?.(".route-map-station");
   if (station) {
-    if (performance.now() < suppressStationClickUntil) return;
     showStationCard(station.dataset.mapName || "");
     return;
   }
