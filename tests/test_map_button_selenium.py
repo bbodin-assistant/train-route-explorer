@@ -344,7 +344,7 @@ class MapButtonSeleniumTest(unittest.TestCase):
                 )
             )
 
-            departure_action = self.driver.execute_script(
+            action_configs = self.driver.execute_script(
                 """
                 document.querySelector(
                   '#routes-map [data-map-station-action="via"]'
@@ -352,11 +352,24 @@ class MapButtonSeleniumTest(unittest.TestCase):
                 document.querySelector(
                   '#routes-map [data-map-station-action="departure"]'
                 ).click();
-                return JSON.parse(
+                const afterDeparture = JSON.parse(
                   localStorage.getItem('train-route-explorer-settings-v1') || '{}'
                 ).config || {};
+                const arrivalButton = document.querySelector(
+                  '#routes-map [data-map-station-action="arrival"]'
+                );
+                if (!arrivalButton) {
+                  return { afterDeparture, error: 'Arrival action disappeared before click' };
+                }
+                arrivalButton.click();
+                const afterArrival = JSON.parse(
+                  localStorage.getItem('train-route-explorer-settings-v1') || '{}'
+                ).config || {};
+                return { afterDeparture, afterArrival };
                 """
             )
+            self.assertNotIn("error", action_configs, action_configs)
+            departure_action = action_configs["afterDeparture"]
             self.assertEqual(
                 departure_action.get("local_origins"),
                 ["Tours"],
@@ -373,16 +386,7 @@ class MapButtonSeleniumTest(unittest.TestCase):
                 departure_action,
             )
 
-            arrival_action = self.driver.execute_script(
-                """
-                document.querySelector(
-                  '#routes-map [data-map-station-action="arrival"]'
-                ).click();
-                return JSON.parse(
-                  localStorage.getItem('train-route-explorer-settings-v1') || '{}'
-                ).config || {};
-                """
-            )
+            arrival_action = action_configs["afterArrival"]
             self.assertEqual(arrival_action.get("local_origins"), ["Tours"], arrival_action)
             self.assertEqual(
                 arrival_action.get("side_b_destinations"),
