@@ -405,6 +405,7 @@ class MapButtonSeleniumTest(unittest.TestCase):
 
     def test_mobile_pan_unbounded_pinch_zoom_and_non_overlapping_city_labels(self):
         self.driver.set_window_size(390, 844)
+        self.driver.get(TEST_URL)
         try:
             setup = self.driver.execute_async_script(
                 """
