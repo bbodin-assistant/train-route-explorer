@@ -11,6 +11,8 @@ const MAP_WIDTH = 920;
 const MAP_HEIGHT = 620;
 const MAP_PADDING = 34;
 const MIN_MAP_ZOOM = 1;
+const DESKTOP_WHEEL_ZOOM_SENSITIVITY = 0.004;
+const DESKTOP_WHEEL_DELTA_LIMIT = 240;
 const OSM_TILE_BASE_ZOOM = 6;
 const OSM_TILE_MAX_ZOOM = 19;
 const OSM_TILE_OVERSCAN = 2;
@@ -1039,12 +1041,14 @@ function installMapInteractions(svg) {
     const isPrimaryMouse = event.pointerType === "mouse" && event.button === 0;
     if (!isTouch && !isPrimaryMouse) return;
 
+    const station = event.target.closest?.(".route-map-station");
     activePointers.set(event.pointerId, {
       x: event.clientX,
       y: event.clientY,
       startX: event.clientX,
       startY: event.clientY,
       moved: false,
+      stationName: station?.dataset.mapName || "",
       pointerType: event.pointerType,
     });
     svg.dataset.dragging = "true";
@@ -1076,11 +1080,14 @@ function installMapInteractions(svg) {
       startX: previous.startX,
       startY: previous.startY,
       moved,
+      stationName: previous.stationName,
       pointerType: previous.pointerType,
     });
 
     if (activePointers.size === 1) {
-      schedulePan(svg, previous.x - event.clientX, previous.y - event.clientY);
+      if (moved) {
+        schedulePan(svg, previous.x - event.clientX, previous.y - event.clientY);
+      }
       event.preventDefault();
       return;
     }
@@ -1112,6 +1119,15 @@ function installMapInteractions(svg) {
   });
 
   const endPointer = (event) => {
+    const pointer = activePointers.get(event.pointerId);
+    const shouldActivateStation = (
+      activePointers.size === 1
+      && pointer
+      && !pointer.moved
+      && pointer.stationName
+      && performance.now() >= suppressStationClickUntil
+    );
+
     flushPendingPan(svg);
     activePointers.delete(event.pointerId);
     if (activePointers.size < 2) pinchGesture = null;
@@ -1119,6 +1135,13 @@ function installMapInteractions(svg) {
       svg.dataset.dragging = "false";
       scheduleTileRender(svg);
       scheduleLabelLayout();
+    }
+
+    if (shouldActivateStation) {
+      showStationCard(pointer.stationName);
+      // Pointer capture can still be followed by a click event on some browsers.
+      // Ignore that duplicate click; pointerup is the canonical station activation.
+      suppressStationClickUntil = performance.now() + 100;
     }
   };
   svg.addEventListener("pointerup", endPointer);
@@ -1136,9 +1159,16 @@ function installMapInteractions(svg) {
       : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
         ? event.deltaY * window.innerHeight
         : event.deltaY;
+    const zoomDelta = clamp(
+      deltaPixels,
+      -DESKTOP_WHEEL_DELTA_LIMIT,
+      DESKTOP_WHEEL_DELTA_LIMIT,
+    );
     const targetZoom = Math.max(
       MIN_MAP_ZOOM,
-      zoomForViewBox(viewBox) * Math.exp(-deltaPixels * 0.0015),
+      zoomForViewBox(viewBox) * Math.exp(
+        -zoomDelta * DESKTOP_WHEEL_ZOOM_SENSITIVITY,
+      ),
     );
     const width = MAP_WIDTH / targetZoom;
     const height = MAP_HEIGHT / targetZoom;

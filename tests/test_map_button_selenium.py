@@ -162,12 +162,23 @@ class MapButtonSeleniumTest(unittest.TestCase):
                 )
             )
 
+            self.driver.find_element(
+                By.CSS_SELECTOR,
+                '#routes-map .route-map-station[data-map-name="Tours"] .route-map-station-hit',
+            ).click()
+            self.wait.until(
+                lambda driver: driver.execute_script(
+                    """
+                    const card = document.querySelector('#routes-map .route-map-station-card');
+                    return Boolean(card && !card.hidden);
+                    """
+                )
+            )
             opened = self.driver.execute_script(
                 """
                 const station = document.querySelector(
                   '#routes-map .route-map-station[data-map-name="Tours"]'
                 );
-                station.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
                 const card = document.querySelector('#routes-map .route-map-station-card');
                 const actions = Array.from(
                   card.querySelectorAll('[data-map-station-action]')
@@ -698,7 +709,7 @@ class MapButtonSeleniumTest(unittest.TestCase):
               cancelable: true,
               clientX: rect.left + rect.width * 0.5,
               clientY: rect.top + rect.height * 0.5,
-              deltaY: -700,
+              deltaY: -120,
               deltaMode: WheelEvent.DOM_DELTA_PIXEL,
             }));
             return {
@@ -710,7 +721,11 @@ class MapButtonSeleniumTest(unittest.TestCase):
             };
             """
         )
-        self.assertGreater(zoomed["after"]["zoom"], zoomed["before"]["zoom"], zoomed)
+        self.assertGreaterEqual(
+            zoomed["after"]["zoom"] / zoomed["before"]["zoom"],
+            1.5,
+            f"Desktop wheel zoom should react quickly to one wheel step: {zoomed}",
+        )
         self.assertLess(zoomed["after"]["width"], zoomed["before"]["width"], zoomed)
 
         panned = self.driver.execute_script(
