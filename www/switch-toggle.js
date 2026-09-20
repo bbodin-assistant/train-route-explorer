@@ -1,7 +1,5 @@
 const timeline = document.querySelector("#routes-time-chart");
 const directionTabs = document.querySelector("#route-direction-tabs");
-const viewTabs = document.querySelector("#route-view-tabs");
-const mapView = document.querySelector("#routes-map");
 const detailFrame = document.querySelector("#train-detail-frame");
 const mobileTimelineQuery = window.matchMedia("(max-width: 900px)");
 
@@ -179,55 +177,12 @@ function installDirectionToggle() {
   }, true);
 }
 
-let forwardingViewToggle = false;
-
-function installViewToggle() {
-  if (!viewTabs || viewTabs.dataset.toggleBehavior === "true") return;
-  viewTabs.dataset.toggleBehavior = "true";
-  viewTabs.title = "Toggle Time / Map view";
-  viewTabs.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-view]");
-    if (!button || forwardingViewToggle) return;
-
-    event.preventDefault();
-    event.stopImmediatePropagation();
-
-    const activeView = viewTabs.querySelector("[data-view].selected")?.dataset.view || "time";
-    const nextView = activeView === "time" ? "map" : "time";
-    const nextButton = viewTabs.querySelector(`[data-view="${nextView}"]`);
-    if (!nextButton) return;
-
-    forwardingViewToggle = true;
-    try {
-      nextButton.click();
-    } finally {
-      forwardingViewToggle = false;
-    }
-  }, true);
-}
-
-function installMapDirectionToggle() {
-  if (!mapView || mapView.dataset.directionToggleBehavior === "true") return;
-  mapView.dataset.directionToggleBehavior = "true";
-  mapView.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-map-direction]");
-    if (!button) return;
-
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    toggleDirection();
-  }, true);
-}
-
 function syncClickedTrainColor(event) {
   const bar = event.target.closest(".timeline-bar.train");
   if (!bar || !detailFrame) return;
   const color = bar.style.getPropertyValue("--train-color").trim();
   if (color) detailFrame.style.setProperty("--detail-train-color", color);
 }
-
-installViewToggle();
-installMapDirectionToggle();
 
 if (timeline) {
   timeline.addEventListener("click", syncClickedTrainColor, true);

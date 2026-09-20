@@ -1390,7 +1390,7 @@ function setViewMode(mode) {
 viewTabs?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-view]");
   if (!button) return;
-  setViewMode(button.dataset.view);
+  setViewMode(viewMode === "map" ? "time" : "map");
 });
 
 mapView?.addEventListener("click", (event) => {
@@ -1398,10 +1398,8 @@ mapView?.addEventListener("click", (event) => {
   if (directionButton) {
     event.preventDefault();
     event.stopPropagation();
-    const sourceButton = directionTabs?.querySelector(
-      `[data-tab="${directionButton.dataset.mapDirection}"]`,
-    );
-    sourceButton?.click();
+    const nextTab = state.selectedTab === "back" ? "out" : "back";
+    directionTabs?.querySelector(`[data-tab="${nextTab}"]`)?.click();
     return;
   }
 
