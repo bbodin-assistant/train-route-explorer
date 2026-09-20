@@ -71,10 +71,31 @@ class MapButtonSeleniumTest(unittest.TestCase):
         self.assertFalse(map_view.is_displayed())
         self.assertTrue(time_view.is_displayed())
 
-        map_button.click()
+        self.assertEqual(
+            self.driver.execute_script(
+                "return getComputedStyle(arguments[0], '::after').display;",
+                time_button,
+            ),
+            "none",
+            "Time/Map toggle should not show a yellow selected dot",
+        )
+
+        time_button.click()
 
         self.wait.until(lambda driver: driver.find_element(By.ID, "routes-map").is_displayed())
         self.wait.until(lambda driver: not driver.find_element(By.ID, "routes-time-chart").is_displayed())
+
+        map_button = self.driver.find_element(
+            By.CSS_SELECTOR, '#route-view-tabs [data-view="map"]'
+        )
+        map_button.click()
+        self.wait.until(lambda driver: driver.find_element(By.ID, "routes-time-chart").is_displayed())
+
+        map_button = self.driver.find_element(
+            By.CSS_SELECTOR, '#route-view-tabs [data-view="map"]'
+        )
+        map_button.click()
+        self.wait.until(lambda driver: driver.find_element(By.ID, "routes-map").is_displayed())
 
         map_button = self.driver.find_element(
             By.CSS_SELECTOR, '#route-view-tabs [data-view="map"]'
@@ -196,7 +217,7 @@ class MapButtonSeleniumTest(unittest.TestCase):
             self.driver.execute_script(
                 """
                 document.querySelector(
-                  '#routes-map [data-map-direction="back"]'
+                  '#routes-map [data-map-direction="out"]'
                 ).click();
                 """
             )
@@ -208,6 +229,40 @@ class MapButtonSeleniumTest(unittest.TestCase):
                       && document.querySelector(
                         '#routes-map .route-map-station[data-map-name="Tours"]'
                       )
+                    );
+                    """
+                )
+            )
+
+            self.driver.execute_script(
+                """
+                document.querySelector(
+                  '#routes-map [data-map-direction="back"]'
+                ).click();
+                """
+            )
+            self.wait.until(
+                lambda driver: driver.execute_script(
+                    """
+                    return Boolean(
+                      document.querySelector('#routes-map [data-map-direction="out"].selected')
+                    );
+                    """
+                )
+            )
+
+            self.driver.execute_script(
+                """
+                document.querySelector(
+                  '#routes-map [data-map-direction="out"]'
+                ).click();
+                """
+            )
+            self.wait.until(
+                lambda driver: driver.execute_script(
+                    """
+                    return Boolean(
+                      document.querySelector('#routes-map [data-map-direction="back"].selected')
                     );
                     """
                 )

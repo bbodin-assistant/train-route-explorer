@@ -180,23 +180,52 @@ async function main() {
       const day = document.querySelector(".day-control").getBoundingClientRect();
       const toggle = document.querySelector("#route-view-tabs").getBoundingClientRect();
       const slider = document.querySelector("#route-view-tabs");
+      const timeButton = document.querySelector('#route-view-tabs [data-view="time"]');
+      const mapButton = document.querySelector('#route-view-tabs [data-view="map"]');
       const beforeTransform = getComputedStyle(slider, "::before").transform;
-      document.querySelector('#route-view-tabs [data-view="map"]').click();
-      const afterTransform = getComputedStyle(slider, "::before").transform;
+      const selectedMarkerDisplay = getComputedStyle(timeButton, "::after").display;
+
+      timeButton.click();
+      const afterTimeClick = {
+        mapPressed: mapButton.getAttribute("aria-pressed"),
+        timePressed: timeButton.getAttribute("aria-pressed"),
+        transform: getComputedStyle(slider, "::before").transform,
+      };
+
+      mapButton.click();
+      const afterMapClick = {
+        mapPressed: mapButton.getAttribute("aria-pressed"),
+        timePressed: timeButton.getAttribute("aria-pressed"),
+      };
+
+      mapButton.click();
+      const afterInactiveMapClick = {
+        mapPressed: mapButton.getAttribute("aria-pressed"),
+        timePressed: timeButton.getAttribute("aria-pressed"),
+      };
+
+      mapButton.click();
+
       return {
         sameRow: Math.abs((day.top + day.height / 2) - (toggle.top + toggle.height / 2)) < 6,
         toggleToRight: toggle.left > day.left,
         withinViewport: toggle.right <= window.innerWidth,
         beforeTransform,
-        afterTransform,
-        mapPressed: document.querySelector('#route-view-tabs [data-view="map"]').getAttribute("aria-pressed"),
-        timePressed: document.querySelector('#route-view-tabs [data-view="time"]').getAttribute("aria-pressed"),
+        selectedMarkerDisplay,
+        afterTimeClick,
+        afterMapClick,
+        afterInactiveMapClick,
+        finalMapPressed: mapButton.getAttribute("aria-pressed"),
+        finalTimePressed: timeButton.getAttribute("aria-pressed"),
       };
     })()`);
     assert(mobileViewToggle.sameRow && mobileViewToggle.toggleToRight && mobileViewToggle.withinViewport, "Mobile Time/Map toggle should sit beside the date controls");
-    assert(mobileViewToggle.mapPressed === "true" && mobileViewToggle.timePressed === "false", "Map side should become selected when tapped");
-    assert(mobileViewToggle.beforeTransform !== mobileViewToggle.afterTransform, "View toggle indicator should slide to the selected side");
-    await page.eval(`document.querySelector('#route-view-tabs [data-view="time"]').click()`);
+    assert(mobileViewToggle.selectedMarkerDisplay === "none", "Time/Map toggle should not show a yellow selected dot");
+    assert(mobileViewToggle.afterTimeClick.mapPressed === "true" && mobileViewToggle.afterTimeClick.timePressed === "false", "Clicking the selected Time side should switch to Map");
+    assert(mobileViewToggle.beforeTransform !== mobileViewToggle.afterTimeClick.transform, "View toggle indicator should slide to the selected side");
+    assert(mobileViewToggle.afterMapClick.mapPressed === "false" && mobileViewToggle.afterMapClick.timePressed === "true", "Clicking the selected Map side should switch to Time");
+    assert(mobileViewToggle.afterInactiveMapClick.mapPressed === "true" && mobileViewToggle.afterInactiveMapClick.timePressed === "false", "Clicking either side should toggle the Time/Map switch");
+    assert(mobileViewToggle.finalMapPressed === "false" && mobileViewToggle.finalTimePressed === "true", "Time/Map toggle should finish restored to Time");
     await page.send("Emulation.clearDeviceMetricsOverride");
     assert(await page.eval(`document.querySelector("#highlight-stations") === null`), "Separate Highlights panel should not render");
     assert(await page.eval(`document.querySelector("#swap-stations-button")?.textContent === "<->"`), "Exchange button should render in the route summary");
@@ -307,6 +336,19 @@ async function main() {
     assert(!stickyTimelineHeaders.extraBannerExists, "Timeline should not render a duplicate day banner");
     assert(stickyTimelineHeaders.scalePosition === "sticky" && stickyTimelineHeaders.scaleTop === 0, "Time axis should stick to the top of the chart");
     assert(stickyTimelineHeaders.headingPosition === "sticky" && stickyTimelineHeaders.headingTop >= stickyTimelineHeaders.scaleHeight, "Day heading should stick directly below the time axis");
+
+    await waitFor(async () => page.eval(`Boolean(document.querySelector(".timeline-direction-switch [data-proxy-tab]"))`), {
+      message: "timeline direction toggle",
+    });
+    await page.eval(`document.querySelector('.timeline-direction-switch [data-proxy-tab="out"]').click()`);
+    await waitFor(async () => page.eval(`document.querySelector('#route-direction-tabs [data-tab="back"]')?.classList.contains("selected")`), {
+      message: "timeline direction to toggle to return",
+    });
+    await page.eval(`document.querySelector('.timeline-direction-switch [data-proxy-tab="back"]').click()`);
+    await waitFor(async () => page.eval(`document.querySelector('#route-direction-tabs [data-tab="out"]')?.classList.contains("selected")`), {
+      message: "timeline direction to toggle back outbound",
+    });
+
     assert(await page.eval(`document.querySelector("#timeline-load-more")?.textContent`) === "Load 3 more days", "Timeline should end with a load-more button");
     await waitFor(async () => page.eval(`Boolean(document.querySelector('[data-timeline-sort="duration"]'))`), {
       message: "timeline sort controls to render",

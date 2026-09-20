@@ -1,5 +1,7 @@
 const timeline = document.querySelector("#routes-time-chart");
 const directionTabs = document.querySelector("#route-direction-tabs");
+const viewTabs = document.querySelector("#route-view-tabs");
+const mapView = document.querySelector("#routes-map");
 const detailFrame = document.querySelector("#train-detail-frame");
 const mobileTimelineQuery = window.matchMedia("(max-width: 900px)");
 
@@ -7,6 +9,13 @@ const switchToggleStyle = document.createElement("style");
 switchToggleStyle.textContent = `
   .timeline-sticky-head {
     padding-top: 6px !important;
+  }
+
+  .tab-buttons button.selected::after,
+  .timeline-direction-switch button.selected::after,
+  .route-map-direction-switch button.selected::after {
+    content: none !important;
+    display: none !important;
   }
 
   #train-detail-frame:not(.journey-detail-frame) .detail-stop:not(.context) i {
@@ -143,6 +152,13 @@ function syncMobileDirectionLabels() {
   }
 }
 
+function toggleDirection() {
+  if (!directionTabs) return;
+  const activeTab = directionTabs.querySelector("[data-tab].selected")?.dataset.tab || "out";
+  const nextTab = activeTab === "out" ? "back" : "out";
+  directionTabs.querySelector(`[data-tab="${nextTab}"]`)?.click();
+}
+
 function installDirectionToggle() {
   const switchElement = timeline?.querySelector(".timeline-direction-switch");
   if (!switchElement) return;
@@ -159,10 +175,47 @@ function installDirectionToggle() {
 
     event.preventDefault();
     event.stopImmediatePropagation();
+    toggleDirection();
+  }, true);
+}
 
-    const activeTab = directionTabs.querySelector("[data-tab].selected")?.dataset.tab || "out";
-    const nextTab = activeTab === "out" ? "back" : "out";
-    directionTabs.querySelector(`[data-tab="${nextTab}"]`)?.click();
+let forwardingViewToggle = false;
+
+function installViewToggle() {
+  if (!viewTabs || viewTabs.dataset.toggleBehavior === "true") return;
+  viewTabs.dataset.toggleBehavior = "true";
+  viewTabs.title = "Toggle Time / Map view";
+  viewTabs.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-view]");
+    if (!button || forwardingViewToggle) return;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+
+    const activeView = viewTabs.querySelector("[data-view].selected")?.dataset.view || "time";
+    const nextView = activeView === "time" ? "map" : "time";
+    const nextButton = viewTabs.querySelector(`[data-view="${nextView}"]`);
+    if (!nextButton) return;
+
+    forwardingViewToggle = true;
+    try {
+      nextButton.click();
+    } finally {
+      forwardingViewToggle = false;
+    }
+  }, true);
+}
+
+function installMapDirectionToggle() {
+  if (!mapView || mapView.dataset.directionToggleBehavior === "true") return;
+  mapView.dataset.directionToggleBehavior = "true";
+  mapView.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-map-direction]");
+    if (!button) return;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    toggleDirection();
   }, true);
 }
 
@@ -172,6 +225,9 @@ function syncClickedTrainColor(event) {
   const color = bar.style.getPropertyValue("--train-color").trim();
   if (color) detailFrame.style.setProperty("--detail-train-color", color);
 }
+
+installViewToggle();
+installMapDirectionToggle();
 
 if (timeline) {
   timeline.addEventListener("click", syncClickedTrainColor, true);
