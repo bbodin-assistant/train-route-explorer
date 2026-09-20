@@ -304,11 +304,18 @@ class MapButtonSeleniumTest(unittest.TestCase):
                   card.querySelectorAll('[data-map-station-action]')
                 ).map((button) => button.textContent.trim()).filter(Boolean);
                 const hit = station.querySelector('.route-map-station-hit');
+                const directionToggle = document.querySelector(
+                  '#routes-map .route-map-direction-switch'
+                );
+                const directionRect = directionToggle?.getBoundingClientRect();
                 return {
                   hidden: card.hidden,
                   title: card.querySelector('[data-map-station-title]')?.textContent || '',
                   detail: card.querySelector('[data-map-station-detail]')?.textContent || '',
                   actions,
+                  directionVisible: Boolean(
+                    directionRect && directionRect.width > 0 && directionRect.height > 0
+                  ),
                   hitWidth: hit?.getBoundingClientRect().width || 0,
                   tabIndex: station.getAttribute('tabindex'),
                   role: station.getAttribute('role'),
@@ -322,6 +329,7 @@ class MapButtonSeleniumTest(unittest.TestCase):
             self.assertIn("Arrive here", opened["actions"])
             self.assertIn("Add via", opened["actions"])
             self.assertIn("Highlight", opened["actions"])
+            self.assertFalse(opened["directionVisible"], opened)
             self.assertGreaterEqual(opened["hitWidth"], 24, opened)
             self.assertEqual(opened["tabIndex"], "0")
             self.assertEqual(opened["role"], "button")

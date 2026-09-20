@@ -209,6 +209,10 @@ mapStyle.textContent = `
     color: #fff;
   }
 
+  #routes-map.station-card-open .route-map-direction-switch {
+    display: none;
+  }
+
   .route-map-station-card {
     position: absolute;
     right: 12px;
@@ -896,6 +900,7 @@ function stationRoleLabel(name) {
 
 function closeStationCard() {
   selectedStationName = "";
+  mapView?.classList.remove("station-card-open");
   const card = mapView?.querySelector(".route-map-station-card");
   if (card) card.hidden = true;
   for (const group of mapView?.querySelectorAll(".route-map-station.selected") || []) {
@@ -917,6 +922,7 @@ function showStationCard(name) {
   }
 
   selectedStationName = name;
+  mapView.classList.add("station-card-open");
   for (const candidate of svg.querySelectorAll(".route-map-station")) {
     candidate.classList.toggle("selected", candidate === group);
   }

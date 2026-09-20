@@ -228,7 +228,7 @@ async function main() {
     assert(mobileViewToggle.finalMapPressed === "false" && mobileViewToggle.finalTimePressed === "true", "Time/Map toggle should finish restored to Time");
     await page.send("Emulation.clearDeviceMetricsOverride");
     assert(await page.eval(`document.querySelector("#highlight-stations") === null`), "Separate Highlights panel should not render");
-    assert(await page.eval(`document.querySelector("#swap-stations-button")?.textContent === "<->"`), "Exchange button should render in the route summary");
+    assert(await page.eval(`document.querySelector("#swap-stations-button")?.textContent === "Swap"`), "Swap button should have a clear visible label");
     const beforeSwap = await page.eval(`JSON.stringify(JSON.parse(localStorage.getItem("train-route-explorer-settings-v1")).config)`);
     await page.eval(`document.querySelector("#swap-stations-button").click()`);
     const afterSwap = await page.eval(`JSON.stringify(JSON.parse(localStorage.getItem("train-route-explorer-settings-v1")).config)`);
