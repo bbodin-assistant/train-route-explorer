@@ -26,7 +26,7 @@ const DEFAULT_MAP_STYLE = "standard";
 const MAP_STYLE_VALUES = new Set(["standard", "muted", "monochrome", "dark"]);
 const AUTO_REFRESH_DELAY_MS = 300;
 const ROUTE_DAY_COUNT = 1;
-const ROUTE_PROTOCOL_VERSION = 5;
+const ROUTE_PROTOCOL_VERSION = 6;
 const TRAIN_TYPE_COLORS = {
   "TGV INOUI": "#2563eb",
   "OUIGO Grande Vitesse": "#c026d3",
@@ -522,4 +522,4 @@ export const app = {
   writeConfig,
 };
 
-import("./app-events.js?v=0.16");
+import("./app-events.js?v=0.17");
