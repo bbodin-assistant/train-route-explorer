@@ -353,19 +353,15 @@ class StationFilterRegressionTest(unittest.TestCase):
             self._close_overlays()
             self._set_window(DESKTOP_SIZE)
 
-    def test_35_direction_controls_are_not_visible(self):
+    def test_35_direction_controls_are_removed(self):
         self.assertTrue(
             self.driver.execute_script(
                 """
-                const selectors = [
+                return [
                   '#route-direction-tabs',
                   '.timeline-direction-switch',
                   '.route-map-direction-switch',
-                ];
-                return selectors.every((selector) => {
-                  const element = document.querySelector(selector);
-                  return !element || getComputedStyle(element).display === 'none';
-                });
+                ].every((selector) => document.querySelector(selector) === null);
                 """
             )
         )

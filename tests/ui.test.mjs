@@ -167,7 +167,7 @@ async function main() {
     assert(await page.eval(`Array.from(document.querySelectorAll(".input-with-unit input")).every((input) => input.getBoundingClientRect().width <= 100)`) === true, "Numeric settings should use compact text boxes");
     assert(await page.eval(`document.querySelector('[data-role="local_origins"] legend')?.textContent`) === "Departure stations", "Departure station list should use departure terminology");
     assert(await page.eval(`document.querySelector('[data-role="side_b_destinations"] legend')?.textContent`) === "Arrival stations", "Arrival station list should use arrival terminology");
-    assert(await page.eval(`getComputedStyle(document.querySelector("#route-direction-tabs")).display === "none"`), "Journey direction toggle should be permanently hidden from the interface");
+    assert(await page.eval(`document.querySelector("#route-direction-tabs") === null`), "Journey direction toggle should be removed from the interface");
     assert(await page.eval(`Array.from(document.querySelectorAll("#route-view-tabs button")).map((button) => button.textContent).join("|")`) === "Time|Map", "View switch should expose Time and Map modes");
 
     await page.send("Emulation.setDeviceMetricsOverride", {
@@ -337,10 +337,7 @@ async function main() {
     assert(stickyTimelineHeaders.scalePosition === "sticky" && stickyTimelineHeaders.scaleTop === 0, "Time axis should stick to the top of the chart");
     assert(stickyTimelineHeaders.headingPosition === "sticky" && stickyTimelineHeaders.headingTop >= stickyTimelineHeaders.scaleHeight, "Day heading should stick directly below the time axis");
 
-    assert(await page.eval(`(() => {
-      const toggle = document.querySelector(".timeline-direction-switch");
-      return !toggle || getComputedStyle(toggle).display === "none";
-    })()`), "Timeline direction toggle should not be visible");
+    assert(await page.eval(`document.querySelector(".timeline-direction-switch") === null`), "Timeline direction toggle should not be rendered");
 
     assert(await page.eval(`document.querySelector("#timeline-load-more")?.textContent`) === "Load 3 more days", "Timeline should end with a load-more button");
     await waitFor(async () => page.eval(`Boolean(document.querySelector('[data-timeline-sort="duration"]'))`), {

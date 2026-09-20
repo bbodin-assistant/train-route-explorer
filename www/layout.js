@@ -1,6 +1,5 @@
 const routeSettings = document.querySelector(".route-settings-menu");
 const dataMenu = document.querySelector(".data-menu");
-const directionTabs = document.querySelector("#route-direction-tabs");
 const viewTabs = document.querySelector("#route-view-tabs");
 const timeline = document.querySelector("#routes-time-chart");
 const routeSummary = document.querySelector(".route-summary");
@@ -237,33 +236,8 @@ layoutEnhancementStyle.textContent = `
     background: var(--paper);
   }
 
-  .timeline-direction-switch {
-    justify-self: start;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    width: 178px;
-    margin-left: 4px;
-    padding: 2px;
-    border: 1px solid #b7bec1;
-    border-radius: 999px;
-    background: #eef0ed;
-  }
-
-  .timeline-direction-switch button {
-    min-height: 24px;
-    border: 0;
-    border-radius: 999px;
-    padding: 3px 10px;
-    background: transparent;
-    color: #677078;
-    font-size: 10px;
-    font-weight: 750;
-  }
-
-  .timeline-direction-switch button:hover { background: rgba(255, 255, 255, 0.55); }
-  .timeline-direction-switch button.selected { background: #1e2832; color: #fff; }
-
   .timeline-sticky-meta .timeline-legend {
+    grid-column: 2;
     margin: 0 !important;
     min-width: 0 !important;
     min-height: 30px !important;
@@ -344,8 +318,6 @@ layoutEnhancementStyle.textContent = `
       min-height: 300px;
     }
 
-    .timeline-direction-switch { width: 150px; }
-    .timeline-direction-switch button { padding-inline: 6px; }
   }
 
   @media (max-width: 560px) {
@@ -426,46 +398,6 @@ function updateRouteSummary() {
   for (const value of document.querySelectorAll("[data-route-value]")) {
     value.textContent = compactStationNames(selectedStationNames(value.dataset.routeValue));
   }
-}
-
-function selectedDirection() {
-  return directionTabs?.querySelector("[data-tab].selected")?.dataset.tab || "out";
-}
-
-function syncDirectionPressedState() {
-  if (!directionTabs) return;
-  const activeTab = selectedDirection();
-
-  for (const button of directionTabs.querySelectorAll("[data-tab]")) {
-    button.setAttribute("aria-pressed", String(button.dataset.tab === activeTab));
-  }
-
-  for (const button of document.querySelectorAll(".timeline-direction-switch [data-proxy-tab]")) {
-    const selected = button.dataset.proxyTab === activeTab;
-    button.classList.toggle("selected", selected);
-    button.setAttribute("aria-pressed", String(selected));
-  }
-}
-
-function makeTimelineDirectionSwitch() {
-  const switchElement = document.createElement("div");
-  switchElement.className = "timeline-direction-switch";
-  switchElement.setAttribute("role", "group");
-  switchElement.setAttribute("aria-label", "Journey direction");
-
-  for (const sourceButton of directionTabs?.querySelectorAll("[data-tab]") || []) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.dataset.proxyTab = sourceButton.dataset.tab;
-    button.textContent = sourceButton.textContent.trim();
-    button.addEventListener("click", () => {
-      sourceButton.click();
-      requestAnimationFrame(syncDirectionPressedState);
-    });
-    switchElement.append(button);
-  }
-
-  return switchElement;
 }
 
 function closeRouteSelectors(exceptRole = null) {
@@ -556,12 +488,9 @@ function colorTripDurations() {
 }
 
 function ensureStickyTimelineHeader() {
-  if (!timeline || !directionTabs) return;
+  if (!timeline) return;
   const existingHead = timeline.querySelector(":scope > .timeline-sticky-head");
-  if (existingHead) {
-    syncDirectionPressedState();
-    return;
-  }
+  if (existingHead) return;
 
   const legend = timeline.querySelector(":scope > .timeline-legend");
   const scale = timeline.querySelector(":scope > .timeline-scale");
@@ -571,13 +500,11 @@ function ensureStickyTimelineHeader() {
   stickyHead.className = "timeline-sticky-head";
   const meta = document.createElement("div");
   meta.className = "timeline-sticky-meta";
-  const directionSwitch = makeTimelineDirectionSwitch();
 
   timeline.insertBefore(stickyHead, legend);
   stickyHead.append(meta);
-  meta.append(directionSwitch, legend);
+  meta.append(legend);
   stickyHead.append(scale);
-  syncDirectionPressedState();
 }
 
 let timelineEnhancementFrame = null;
@@ -607,16 +534,6 @@ document.addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeRouteSelectors();
 });
-
-directionTabs?.addEventListener("click", () => requestAnimationFrame(syncDirectionPressedState));
-
-if (directionTabs) {
-  new MutationObserver(syncDirectionPressedState).observe(directionTabs, {
-    attributes: true,
-    subtree: true,
-    attributeFilter: ["class"],
-  });
-}
 
 if (timeline) {
   new MutationObserver(scheduleTimelineEnhancements).observe(timeline, {

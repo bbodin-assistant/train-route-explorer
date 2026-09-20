@@ -1,7 +1,5 @@
 const timeline = document.querySelector("#routes-time-chart");
-const directionTabs = document.querySelector("#route-direction-tabs");
 const detailFrame = document.querySelector("#train-detail-frame");
-const mobileTimelineQuery = window.matchMedia("(max-width: 900px)");
 
 const switchToggleStyle = document.createElement("style");
 switchToggleStyle.textContent = `
@@ -9,15 +7,7 @@ switchToggleStyle.textContent = `
     padding-top: 6px !important;
   }
 
-  #route-direction-tabs,
-  .timeline-direction-switch,
-  .route-map-direction-switch {
-    display: none !important;
-  }
-
-  .tab-buttons button.selected::after,
-  .timeline-direction-switch button.selected::after,
-  .route-map-direction-switch button.selected::after {
+  .tab-buttons button.selected::after {
     content: none !important;
     display: none !important;
   }
@@ -87,19 +77,6 @@ switchToggleStyle.textContent = `
       z-index: 15;
     }
 
-    .timeline-direction-switch {
-      width: 104px !important;
-      margin-left: 2px !important;
-      padding: 1px !important;
-    }
-
-    .timeline-direction-switch button {
-      min-height: 22px !important;
-      padding: 2px 4px !important;
-      font-size: 9px !important;
-      letter-spacing: 0 !important;
-    }
-
     .timeline-sticky-meta .timeline-legend {
       min-width: 0 !important;
       margin: 0 !important;
@@ -144,45 +121,6 @@ function syncLegendLabels() {
   }
 }
 
-function syncMobileDirectionLabels() {
-  for (const button of timeline?.querySelectorAll(".timeline-direction-switch [data-proxy-tab]") || []) {
-    const source = directionTabs?.querySelector(`[data-tab="${button.dataset.proxyTab}"]`);
-    const fullLabel = source?.textContent.trim() || button.textContent.trim();
-    const label = mobileTimelineQuery.matches
-      ? (button.dataset.proxyTab === "back" ? "Return" : "Outbound")
-      : fullLabel;
-    if (button.textContent !== label) button.textContent = label;
-    button.setAttribute("aria-label", fullLabel);
-  }
-}
-
-function toggleDirection() {
-  if (!directionTabs) return;
-  const activeTab = directionTabs.querySelector("[data-tab].selected")?.dataset.tab || "out";
-  const nextTab = activeTab === "out" ? "back" : "out";
-  directionTabs.querySelector(`[data-tab="${nextTab}"]`)?.click();
-}
-
-function installDirectionToggle() {
-  const switchElement = timeline?.querySelector(".timeline-direction-switch");
-  if (!switchElement) return;
-
-  syncLegendLabels();
-  syncMobileDirectionLabels();
-
-  if (switchElement.dataset.toggleBehavior === "true") return;
-  switchElement.dataset.toggleBehavior = "true";
-  switchElement.title = "Toggle journey direction";
-  switchElement.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-proxy-tab]");
-    if (!button || !directionTabs) return;
-
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    toggleDirection();
-  }, true);
-}
-
 function syncClickedTrainColor(event) {
   const bar = event.target.closest(".timeline-bar.train");
   if (!bar || !detailFrame) return;
@@ -192,12 +130,10 @@ function syncClickedTrainColor(event) {
 
 if (timeline) {
   timeline.addEventListener("click", syncClickedTrainColor, true);
-  new MutationObserver(installDirectionToggle).observe(timeline, {
+  new MutationObserver(syncLegendLabels).observe(timeline, {
     childList: true,
     subtree: true,
   });
 }
 
-mobileTimelineQuery.addEventListener?.("change", syncMobileDirectionLabels);
-
-installDirectionToggle();
+syncLegendLabels();

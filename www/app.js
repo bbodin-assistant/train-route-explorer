@@ -143,7 +143,6 @@ const els = {
   previousDayBtn: $("#previous-day-button"),
   todayBtn: $("#today-button"),
   nextDayBtn: $("#next-day-button"),
-  tabs: $("#route-direction-tabs"),
   timeline: $("#routes-time-chart"),
   detailLayer: $("#train-detail-dismiss-layer"),
   detailFrame: $("#train-detail-frame"),
@@ -448,12 +447,6 @@ const {
   state,
   worker,
 });
-function syncSelectedTabButtons() {
-  for (const button of els.tabs.querySelectorAll("[data-tab]")) {
-    button.classList.toggle("selected", button.dataset.tab === state.selectedTab);
-  }
-}
-
 function showDetail(leg, event) {
   const stops = leg.journey_path || leg.path || [];
   const train = leg.train_number ? `${leg.train_type} ${leg.train_number}` : leg.train_type;
@@ -513,7 +506,6 @@ export const app = {
   showDetail,
   showRefreshNotice,
   state,
-  syncSelectedTabButtons,
   syncSetValue,
   syncStationState,
   todayGtfsDate,
@@ -522,4 +514,4 @@ export const app = {
   writeConfig,
 };
 
-import("./app-events.js?v=0.17");
+import("./app-events.js?v=0.19");

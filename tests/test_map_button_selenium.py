@@ -207,29 +207,15 @@ class MapButtonSeleniumTest(unittest.TestCase):
                 )
             )
 
-            direction_controls = self.driver.execute_script(
+            direction_controls_removed = self.driver.execute_script(
                 """
-                const selectors = [
+                return [
                   '#route-direction-tabs',
                   '#routes-map .route-map-direction-switch',
-                ];
-                return selectors.map((selector) => {
-                  const element = document.querySelector(selector);
-                  return {
-                    selector,
-                    visible: Boolean(
-                      element
-                      && getComputedStyle(element).display !== 'none'
-                      && element.getClientRects().length
-                    ),
-                  };
-                });
+                ].every((selector) => document.querySelector(selector) === null);
                 """
             )
-            self.assertTrue(
-                all(not control["visible"] for control in direction_controls),
-                direction_controls,
-            )
+            self.assertTrue(direction_controls_removed)
             fixed_roles = self.driver.execute_script(
                 """
                 return {

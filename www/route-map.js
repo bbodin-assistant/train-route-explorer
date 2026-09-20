@@ -3,7 +3,6 @@ import { app } from "./app.js?v=0.16";
 const timeView = document.querySelector("#routes-time-chart");
 const mapView = document.querySelector("#routes-map");
 const viewTabs = document.querySelector("#route-view-tabs");
-const directionTabs = document.querySelector("#route-direction-tabs");
 const mapStyleControl = document.querySelector("#config-map-style");
 const { state } = app;
 
@@ -179,42 +178,6 @@ mapStyle.textContent = `
   .route-map-summary strong {
     color: #28343e;
     font-size: 11px;
-  }
-
-  .route-map-direction-switch {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    width: min(260px, calc(100vw - 56px));
-    padding: 2px;
-    border: 1px solid #b7bec1;
-    border-radius: 999px;
-    background: #eef0ed;
-  }
-
-  .route-map-direction-switch button {
-    min-height: 26px;
-    border: 0;
-    border-radius: 999px;
-    padding: 3px 9px;
-    background: transparent;
-    color: #677078;
-    font-size: 10px;
-    font-weight: 750;
-    line-height: 1.1;
-    white-space: nowrap;
-  }
-
-  .route-map-direction-switch button:hover {
-    background: rgba(255, 255, 255, 0.55);
-  }
-
-  .route-map-direction-switch button.selected {
-    background: #1e2832;
-    color: #fff;
-  }
-
-  #routes-map.station-card-open .route-map-direction-switch {
-    display: none;
   }
 
   .route-map-station-card {
@@ -1244,24 +1207,13 @@ function installMapInteractions(svg) {
   setMapViewBox(svg, { x: 0, y: 0, width: MAP_WIDTH, height: MAP_HEIGHT });
 }
 
-function mapDirectionSwitchHtml() {
-  const buttons = Array.from(directionTabs?.querySelectorAll("[data-tab]") || []).map((sourceButton) => {
-    const selected = sourceButton.dataset.tab === state.selectedTab;
-    return `<button type="button" data-map-direction="${escapeText(sourceButton.dataset.tab)}" class="${selected ? "selected" : ""}" aria-pressed="${selected}">${escapeText(sourceButton.textContent.trim())}</button>`;
-  }).join("");
-
-  return `<div class="route-map-direction-switch" role="group" aria-label="Journey direction">${buttons}</div>`;
-}
-
 function renderMap() {
   if (!mapView || viewMode !== "map") return;
 
   const itineraries = activeItineraries();
-  const directionSwitchHtml = mapDirectionSwitchHtml();
   if (!itineraries.length) {
     mapView.innerHTML = `
       <div class="route-map-summary">
-        ${directionSwitchHtml}
         <span>0 routes</span>
       </div>
       <div class="route-map-empty">No matching routes to display on the map.</div>
@@ -1347,7 +1299,6 @@ function renderMap() {
 
   mapView.innerHTML = `
     <div class="route-map-summary">
-      ${directionSwitchHtml}
       <span>${itineraries.length} route${itineraries.length === 1 ? "" : "s"} · ${stations.size} station${stations.size === 1 ? "" : "s"}</span>
       <span class="route-map-legend" aria-label="Search station roles">
         <span class="departure"><i aria-hidden="true"></i>Departure</span>
@@ -1429,15 +1380,6 @@ viewTabs?.addEventListener("click", (event) => {
 });
 
 mapView?.addEventListener("click", (event) => {
-  const directionButton = event.target.closest?.("[data-map-direction]");
-  if (directionButton) {
-    event.preventDefault();
-    event.stopPropagation();
-    const nextTab = state.selectedTab === "back" ? "out" : "back";
-    directionTabs?.querySelector(`[data-tab="${nextTab}"]`)?.click();
-    return;
-  }
-
   const action = event.target.closest?.("[data-map-station-action]");
   if (action) {
     event.preventDefault();
@@ -1476,8 +1418,6 @@ mapView?.addEventListener("keydown", (event) => {
   event.preventDefault();
   showStationCard(station.dataset.mapName || "");
 });
-
-directionTabs?.addEventListener("click", () => requestAnimationFrame(scheduleRender));
 
 mapStyleControl?.addEventListener("change", () => {
   const svg = mapView?.querySelector(".route-map-canvas");

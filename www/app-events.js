@@ -25,7 +25,6 @@ const {
   showDetail,
   showRefreshNotice,
   state,
-  syncSelectedTabButtons,
   syncSetValue,
   syncStationState,
   todayGtfsDate,
@@ -395,18 +394,6 @@ function selectAdjacentDay(offset) {
 }
 els.previousDayBtn.addEventListener("click", () => selectAdjacentDay(-1));
 els.nextDayBtn.addEventListener("click", () => selectAdjacentDay(1));
-els.tabs.addEventListener("click", (event) => {
-  const tab = event.target.closest("[data-tab]");
-  if (!tab) return;
-  state.selectedTab = tab.dataset.tab;
-  syncSelectedTabButtons();
-  saveSettings();
-  if (state.settingsDirty || state.refreshInFlight) {
-    renderRefreshNotice();
-  } else {
-    renderCurrentTab();
-  }
-});
 els.timeline.addEventListener("click", (event) => {
   if (event.target.closest("#timeline-load-more")) {
     requestMoreRoutes();
