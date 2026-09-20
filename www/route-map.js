@@ -1051,19 +1051,20 @@ function installMapInteractions(svg) {
       pointerType: event.pointerType,
     });
     svg.dataset.dragging = "true";
-    try {
-      svg.setPointerCapture(event.pointerId);
-    } catch {
-      // Synthetic browser tests may not have an active native pointer capture target.
-    }
     if (activePointers.size === 2) {
       // Once a second pointer joins, neither pointerup should be treated as
       // a station tap, even if only one finger actually moved.
-      for (const pointer of activePointers.values()) pointer.moved = true;
+      for (const [pointerId, pointer] of activePointers) {
+        pointer.moved = true;
+        try {
+          svg.setPointerCapture(pointerId);
+        } catch {
+          // Synthetic browser tests may not have an active native pointer capture target.
+        }
+      }
       flushPendingPan(svg);
       beginPinch(svg);
     }
-    event.preventDefault();
   });
 
   svg.addEventListener("pointermove", (event) => {
@@ -1086,9 +1087,16 @@ function installMapInteractions(svg) {
 
     if (activePointers.size === 1) {
       if (moved) {
+        try {
+          if (!svg.hasPointerCapture(event.pointerId)) {
+            svg.setPointerCapture(event.pointerId);
+          }
+        } catch {
+          // Synthetic browser tests may not have an active native pointer capture target.
+        }
         schedulePan(svg, previous.x - event.clientX, previous.y - event.clientY);
+        event.preventDefault();
       }
-      event.preventDefault();
       return;
     }
 
