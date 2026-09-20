@@ -9,7 +9,7 @@
     <script type="importmap">
       {
         "imports": {
-          "./app.js?v=0.16": "./app.js?v=0.31",
+          "./app.js?v=0.16": "./app.js?v=0.32",
           "./journey-detail-style.js?v=0.19": "./journey-detail-style.js?v=0.26",
           "./timeline.js": "./timeline.js?v=0.23"
         }
@@ -21,7 +21,7 @@
       <div class="brand">
         <span class="brand-rail" aria-hidden="true"><i></i><i></i></span>
         <span>
-          <strong>Train Route Explorer <span class="app-version" style="margin-left:4px;color:#9aa09f;font-size:9px;font-weight:600;letter-spacing:0;vertical-align:baseline;">v0.38</span></strong>
+          <strong>Train Route Explorer <span class="app-version" style="margin-left:4px;color:#9aa09f;font-size:9px;font-weight:600;letter-spacing:0;vertical-align:baseline;">v0.39</span></strong>
           <small>working timetable</small>
         </span>
       </div>
@@ -184,7 +184,7 @@
               <span>Departure</span>
               <strong data-route-value="local_origins">—</strong>
             </button>
-            <button id="swap-stations-button" class="route-swap-button" type="button" aria-label="Exchange departure and arrival stations" title="Exchange departure and arrival stations">Swap</button>
+            <button id="swap-stations-button" class="route-swap-button" type="button" aria-label="Exchange departure and arrival stations" title="Exchange departure and arrival stations">&lt;- Swap -&gt;</button>
             <button type="button" class="route-summary-stop" data-route-role="connection_stations">
               <span>Via</span>
               <strong data-route-value="connection_stations">—</strong>
@@ -207,13 +207,13 @@
     <div id="train-detail-dismiss-layer" hidden></div>
     <aside id="train-detail-frame" hidden></aside>
 
-    <script type="module" src="./app.js?v=0.31"></script>
+    <script type="module" src="./app.js?v=0.32"></script>
     <script type="module" src="./layout.js?v=0.26.1"></script>
     <script type="module" src="./panels.js?v=0.19"></script>
     <script type="module" src="./sorting.js?grouped-sorting=2"></script>
     <script type="module" src="./row-details.js?v=0.26"></script>
-    <script type="module" src="./switch-toggle.js?v=0.5"></script>
-    <script type="module" src="./route-map.js?v=0.36"></script>
+    <script type="module" src="./switch-toggle.js?v=0.6"></script>
+    <script type="module" src="./route-map.js?v=0.37"></script>
     <script type="module" src="./legend-config.js"></script>
     <script type="module" src="./station-actions.js?v=0.18"></script>
     <script type="module" src="./station-filter-actions.js?v=0.18"></script>

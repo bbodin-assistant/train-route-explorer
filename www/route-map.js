@@ -103,6 +103,11 @@ mapStyle.textContent = `
     stroke-linejoin: round;
     opacity: 0.78;
     vector-effect: non-scaling-stroke;
+    transition: opacity 140ms ease;
+  }
+
+  .route-map-route.dimmed {
+    opacity: 0.22;
   }
 
   .route-map-station {
@@ -898,8 +903,25 @@ function stationRoleLabel(name) {
   return "Station on displayed routes";
 }
 
+function routePassesStation(route, stationName) {
+  if (!stationName) return true;
+  try {
+    return JSON.parse(decodeURIComponent(route.dataset.mapItineraryStations || "%5B%5D"))
+      .includes(stationName);
+  } catch (error) {
+    return true;
+  }
+}
+
+function updateRouteSelectionEmphasis(stationName = "") {
+  for (const route of mapView?.querySelectorAll(".route-map-route") || []) {
+    route.classList.toggle("dimmed", Boolean(stationName) && !routePassesStation(route, stationName));
+  }
+}
+
 function closeStationCard() {
   selectedStationName = "";
+  updateRouteSelectionEmphasis();
   mapView?.classList.remove("station-card-open");
   const card = mapView?.querySelector(".route-map-station-card");
   if (card) card.hidden = true;
@@ -922,6 +944,7 @@ function showStationCard(name) {
   }
 
   selectedStationName = name;
+  updateRouteSelectionEmphasis(name);
   mapView.classList.add("station-card-open");
   for (const candidate of svg.querySelectorAll(".route-map-station")) {
     candidate.classList.toggle("selected", candidate === group);
@@ -1252,8 +1275,13 @@ function renderMap() {
   let fallbackColorIndex = 0;
 
   for (const itinerary of itineraries) {
+    const itineraryStations = new Set([
+      itinerary.departure_stop,
+      itinerary.destination_stop,
+    ].filter(Boolean));
     for (const leg of itinerary.legs || []) {
       const points = pointsForLeg(leg);
+      for (const point of points) itineraryStations.add(point.name);
       if (points.length < 1) continue;
       for (const point of points) {
         if (!stations.has(point.name)) stations.set(point.name, { ...point, frequency: 0 });
@@ -1263,6 +1291,7 @@ function renderMap() {
         routeSegments.push({
           points,
           color: trainColor(String(leg.train_type || "Unknown"), fallbackColorIndex++),
+          itineraryStations,
         });
       }
     }
@@ -1273,12 +1302,13 @@ function renderMap() {
     return;
   }
 
-  const routesHtml = routeSegments.map(({ points, color }) => {
+  const routesHtml = routeSegments.map(({ points, color, itineraryStations }) => {
     const d = points.map((point, index) => {
       const projected = project(point.lon, point.lat);
       return `${index ? "L" : "M"}${projected.x.toFixed(1)},${projected.y.toFixed(1)}`;
     }).join(" ");
-    return `<path class="route-map-route" d="${d}" stroke="${escapeText(color)}" />`;
+    const encodedStations = encodeURIComponent(JSON.stringify(Array.from(itineraryStations)));
+    return `<path class="route-map-route" data-map-itinerary-stations="${encodedStations}" d="${d}" stroke="${escapeText(color)}" />`;
   }).join("");
 
   const stationHtml = Array.from(stations.values(), (station) => {

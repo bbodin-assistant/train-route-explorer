@@ -102,7 +102,7 @@ const state = {
   config: storedSettings.config,
   context: null,
   routes: { outward: [], returns: [], selected_day: null },
-  selectedTab: storedSettings.selectedTab || "out",
+  selectedTab: "out",
   highlights: storedSettings.highlights || [],
   mapStyle: storedSettings.mapStyle || DEFAULT_MAP_STYLE,
   highlightsInitialized: storedSettings.found,

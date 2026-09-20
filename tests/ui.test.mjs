@@ -167,7 +167,7 @@ async function main() {
     assert(await page.eval(`Array.from(document.querySelectorAll(".input-with-unit input")).every((input) => input.getBoundingClientRect().width <= 100)`) === true, "Numeric settings should use compact text boxes");
     assert(await page.eval(`document.querySelector('[data-role="local_origins"] legend')?.textContent`) === "Departure stations", "Departure station list should use departure terminology");
     assert(await page.eval(`document.querySelector('[data-role="side_b_destinations"] legend')?.textContent`) === "Arrival stations", "Arrival station list should use arrival terminology");
-    assert(await page.eval(`Array.from(document.querySelectorAll("#route-direction-tabs button")).map((button) => button.textContent).join("|")`) === "Departure → Arrival|Arrival → Departure", "Direction tabs should use departure and arrival terminology");
+    assert(await page.eval(`getComputedStyle(document.querySelector("#route-direction-tabs")).display === "none"`), "Journey direction toggle should be permanently hidden from the interface");
     assert(await page.eval(`Array.from(document.querySelectorAll("#route-view-tabs button")).map((button) => button.textContent).join("|")`) === "Time|Map", "View switch should expose Time and Map modes");
 
     await page.send("Emulation.setDeviceMetricsOverride", {
@@ -228,7 +228,7 @@ async function main() {
     assert(mobileViewToggle.finalMapPressed === "false" && mobileViewToggle.finalTimePressed === "true", "Time/Map toggle should finish restored to Time");
     await page.send("Emulation.clearDeviceMetricsOverride");
     assert(await page.eval(`document.querySelector("#highlight-stations") === null`), "Separate Highlights panel should not render");
-    assert(await page.eval(`document.querySelector("#swap-stations-button")?.textContent === "Swap"`), "Swap button should have a clear visible label");
+    assert(await page.eval(`document.querySelector("#swap-stations-button")?.textContent === "<- Swap ->"`), "Swap button should have the requested directional label");
     const beforeSwap = await page.eval(`JSON.stringify(JSON.parse(localStorage.getItem("train-route-explorer-settings-v1")).config)`);
     await page.eval(`document.querySelector("#swap-stations-button").click()`);
     const afterSwap = await page.eval(`JSON.stringify(JSON.parse(localStorage.getItem("train-route-explorer-settings-v1")).config)`);
@@ -337,17 +337,10 @@ async function main() {
     assert(stickyTimelineHeaders.scalePosition === "sticky" && stickyTimelineHeaders.scaleTop === 0, "Time axis should stick to the top of the chart");
     assert(stickyTimelineHeaders.headingPosition === "sticky" && stickyTimelineHeaders.headingTop >= stickyTimelineHeaders.scaleHeight, "Day heading should stick directly below the time axis");
 
-    await waitFor(async () => page.eval(`Boolean(document.querySelector(".timeline-direction-switch [data-proxy-tab]"))`), {
-      message: "timeline direction toggle",
-    });
-    await page.eval(`document.querySelector('.timeline-direction-switch [data-proxy-tab="out"]').click()`);
-    await waitFor(async () => page.eval(`document.querySelector('#route-direction-tabs [data-tab="back"]')?.classList.contains("selected")`), {
-      message: "timeline direction to toggle to return",
-    });
-    await page.eval(`document.querySelector('.timeline-direction-switch [data-proxy-tab="back"]').click()`);
-    await waitFor(async () => page.eval(`document.querySelector('#route-direction-tabs [data-tab="out"]')?.classList.contains("selected")`), {
-      message: "timeline direction to toggle back outbound",
-    });
+    assert(await page.eval(`(() => {
+      const toggle = document.querySelector(".timeline-direction-switch");
+      return !toggle || getComputedStyle(toggle).display === "none";
+    })()`), "Timeline direction toggle should not be visible");
 
     assert(await page.eval(`document.querySelector("#timeline-load-more")?.textContent`) === "Load 3 more days", "Timeline should end with a load-more button");
     await waitFor(async () => page.eval(`Boolean(document.querySelector('[data-timeline-sort="duration"]'))`), {

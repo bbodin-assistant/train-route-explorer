@@ -132,7 +132,7 @@ class MapButtonSeleniumTest(unittest.TestCase):
             }
 
             import(appUrl).then(({ app }) => {
-              const stationNames = ['Paris', 'Tours', 'Bordeaux'];
+              const stationNames = ['Paris', 'Tours', 'Poitiers', 'Bordeaux'];
               app.state.context = {
                 ...(app.state.context || {}),
                 station_names: stationNames,
@@ -149,12 +149,26 @@ class MapButtonSeleniumTest(unittest.TestCase):
               app.state.routes = {
                 ...app.state.routes,
                 outward: [{
+                  departure_stop: 'Paris',
+                  destination_stop: 'Bordeaux',
                   legs: [{
                     train_type: 'TGV INOUI',
                     train_number: 'CLICK',
                     path: [
                       { stop_name: 'Paris', lat: 48.8566, lon: 2.3522 },
                       { stop_name: 'Tours', lat: 47.3941, lon: 0.6848 },
+                      { stop_name: 'Bordeaux', lat: 44.8378, lon: -0.5792 },
+                    ],
+                  }],
+                }, {
+                  departure_stop: 'Paris',
+                  destination_stop: 'Bordeaux',
+                  legs: [{
+                    train_type: 'TER',
+                    train_number: 'CLICK-ALT',
+                    path: [
+                      { stop_name: 'Paris', lat: 48.8566, lon: 2.3522 },
+                      { stop_name: 'Poitiers', lat: 46.5802, lon: 0.3404 },
                       { stop_name: 'Bordeaux', lat: 44.8378, lon: -0.5792 },
                     ],
                   }],
@@ -193,81 +207,30 @@ class MapButtonSeleniumTest(unittest.TestCase):
                 )
             )
 
-            direction_toggle = self.driver.execute_script(
+            direction_controls = self.driver.execute_script(
                 """
-                const toggle = document.querySelector('#routes-map .route-map-direction-switch');
-                const buttons = Array.from(toggle?.querySelectorAll('[data-map-direction]') || []);
-                const rect = toggle?.getBoundingClientRect();
-                return {
-                  visible: Boolean(rect && rect.width > 0 && rect.height > 0),
-                  labels: buttons.map((button) => button.textContent.trim()),
-                  selected: buttons.filter((button) => button.classList.contains('selected'))
-                    .map((button) => button.dataset.mapDirection),
-                };
-                """
-            )
-            self.assertTrue(direction_toggle["visible"], direction_toggle)
-            self.assertEqual(
-                direction_toggle["labels"],
-                ["Departure → Arrival", "Arrival → Departure"],
-                direction_toggle,
-            )
-            self.assertEqual(direction_toggle["selected"], ["out"], direction_toggle)
-
-            self.driver.execute_script(
-                """
-                document.querySelector(
-                  '#routes-map [data-map-direction="out"]'
-                ).click();
+                const selectors = [
+                  '#route-direction-tabs',
+                  '#routes-map .route-map-direction-switch',
+                ];
+                return selectors.map((selector) => {
+                  const element = document.querySelector(selector);
+                  return {
+                    selector,
+                    visible: Boolean(
+                      element
+                      && getComputedStyle(element).display !== 'none'
+                      && element.getClientRects().length
+                    ),
+                  };
+                });
                 """
             )
-            self.wait.until(
-                lambda driver: driver.execute_script(
-                    """
-                    return Boolean(
-                      document.querySelector('#routes-map [data-map-direction="back"].selected')
-                      && document.querySelector(
-                        '#routes-map .route-map-station[data-map-name="Tours"]'
-                      )
-                    );
-                    """
-                )
+            self.assertTrue(
+                all(not control["visible"] for control in direction_controls),
+                direction_controls,
             )
-
-            self.driver.execute_script(
-                """
-                document.querySelector(
-                  '#routes-map [data-map-direction="back"]'
-                ).click();
-                """
-            )
-            self.wait.until(
-                lambda driver: driver.execute_script(
-                    """
-                    return Boolean(
-                      document.querySelector('#routes-map [data-map-direction="out"].selected')
-                    );
-                    """
-                )
-            )
-
-            self.driver.execute_script(
-                """
-                document.querySelector(
-                  '#routes-map [data-map-direction="out"]'
-                ).click();
-                """
-            )
-            self.wait.until(
-                lambda driver: driver.execute_script(
-                    """
-                    return Boolean(
-                      document.querySelector('#routes-map [data-map-direction="back"].selected')
-                    );
-                    """
-                )
-            )
-            reverse_roles = self.driver.execute_script(
+            fixed_roles = self.driver.execute_script(
                 """
                 return {
                   departureIsDeparture: document.querySelector(
@@ -279,8 +242,8 @@ class MapButtonSeleniumTest(unittest.TestCase):
                 };
                 """
             )
-            self.assertTrue(reverse_roles["departureIsDeparture"], reverse_roles)
-            self.assertTrue(reverse_roles["arrivalIsArrival"], reverse_roles)
+            self.assertTrue(fixed_roles["departureIsDeparture"], fixed_roles)
+            self.assertTrue(fixed_roles["arrivalIsArrival"], fixed_roles)
 
             self.driver.find_element(
                 By.CSS_SELECTOR,
@@ -304,18 +267,24 @@ class MapButtonSeleniumTest(unittest.TestCase):
                   card.querySelectorAll('[data-map-station-action]')
                 ).map((button) => button.textContent.trim()).filter(Boolean);
                 const hit = station.querySelector('.route-map-station-hit');
-                const directionToggle = document.querySelector(
-                  '#routes-map .route-map-direction-switch'
-                );
-                const directionRect = directionToggle?.getBoundingClientRect();
+                const routeEmphasis = Array.from(
+                  document.querySelectorAll('#routes-map .route-map-route')
+                ).map((route) => {
+                  const stations = JSON.parse(
+                    decodeURIComponent(route.dataset.mapItineraryStations || '%5B%5D')
+                  );
+                  return {
+                    passesTours: stations.includes('Tours'),
+                    opacity: Number.parseFloat(getComputedStyle(route).opacity),
+                    dimmed: route.classList.contains('dimmed'),
+                  };
+                });
                 return {
                   hidden: card.hidden,
                   title: card.querySelector('[data-map-station-title]')?.textContent || '',
                   detail: card.querySelector('[data-map-station-detail]')?.textContent || '',
                   actions,
-                  directionVisible: Boolean(
-                    directionRect && directionRect.width > 0 && directionRect.height > 0
-                  ),
+                  routeEmphasis,
                   hitWidth: hit?.getBoundingClientRect().width || 0,
                   tabIndex: station.getAttribute('tabindex'),
                   role: station.getAttribute('role'),
@@ -329,7 +298,21 @@ class MapButtonSeleniumTest(unittest.TestCase):
             self.assertIn("Arrive here", opened["actions"])
             self.assertIn("Add via", opened["actions"])
             self.assertIn("Highlight", opened["actions"])
-            self.assertFalse(opened["directionVisible"], opened)
+            matching_routes = [
+                route for route in opened["routeEmphasis"] if route["passesTours"]
+            ]
+            non_matching_routes = [
+                route for route in opened["routeEmphasis"] if not route["passesTours"]
+            ]
+            self.assertTrue(matching_routes, opened)
+            self.assertTrue(non_matching_routes, opened)
+            self.assertTrue(all(not route["dimmed"] for route in matching_routes), opened)
+            self.assertTrue(all(route["dimmed"] for route in non_matching_routes), opened)
+            self.assertGreater(
+                min(route["opacity"] for route in matching_routes),
+                max(route["opacity"] for route in non_matching_routes),
+                opened,
+            )
             self.assertGreaterEqual(opened["hitWidth"], 24, opened)
             self.assertEqual(opened["tabIndex"], "0")
             self.assertEqual(opened["role"], "button")

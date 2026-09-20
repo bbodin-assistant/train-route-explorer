@@ -9,6 +9,12 @@ switchToggleStyle.textContent = `
     padding-top: 6px !important;
   }
 
+  #route-direction-tabs,
+  .timeline-direction-switch,
+  .route-map-direction-switch {
+    display: none !important;
+  }
+
   .tab-buttons button.selected::after,
   .timeline-direction-switch button.selected::after,
   .route-map-direction-switch button.selected::after {

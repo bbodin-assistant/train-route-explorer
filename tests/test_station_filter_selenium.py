@@ -353,26 +353,21 @@ class StationFilterRegressionTest(unittest.TestCase):
             self._close_overlays()
             self._set_window(DESKTOP_SIZE)
 
-    def test_35_direction_switch_tracks_selected_direction(self):
-        return_selector = ".timeline-direction-switch [data-proxy-tab='back']"
-        outward_selector = ".timeline-direction-switch [data-proxy-tab='out']"
-
-        self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, return_selector))).click()
-        self.wait.until(
-            lambda driver: driver.find_element(By.CSS_SELECTOR, return_selector).get_attribute("aria-pressed") == "true"
-        )
-        self.assertIn(
-            "selected",
-            self.driver.find_element(By.CSS_SELECTOR, "#route-direction-tabs [data-tab='back']").get_attribute("class"),
-        )
-
-        self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, outward_selector))).click()
-        self.wait.until(
-            lambda driver: driver.find_element(By.CSS_SELECTOR, outward_selector).get_attribute("aria-pressed") == "true"
-        )
-        self.assertIn(
-            "selected",
-            self.driver.find_element(By.CSS_SELECTOR, "#route-direction-tabs [data-tab='out']").get_attribute("class"),
+    def test_35_direction_controls_are_not_visible(self):
+        self.assertTrue(
+            self.driver.execute_script(
+                """
+                const selectors = [
+                  '#route-direction-tabs',
+                  '.timeline-direction-switch',
+                  '.route-map-direction-switch',
+                ];
+                return selectors.every((selector) => {
+                  const element = document.querySelector(selector);
+                  return !element || getComputedStyle(element).display === 'none';
+                });
+                """
+            )
         )
 
     def test_36_exchange_reuses_computed_reverse_routes(self):
