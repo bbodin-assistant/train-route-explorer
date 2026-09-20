@@ -117,7 +117,47 @@ class MapButtonSeleniumTest(unittest.TestCase):
         )
 
 
-    def test_station_click_opens_useful_actions(self):
+
+    def test_swap_button_label_stays_on_one_line(self):
+        try:
+            for width, height in ((1440, 1000), (390, 844)):
+                self.driver.set_window_size(width, height)
+                self.driver.get(TEST_URL)
+                swap_button = self.wait.until(
+                    EC.visibility_of_element_located((By.ID, "swap-stations-button"))
+                )
+                layout = self.driver.execute_script(
+                    """
+                    const button = arguments[0];
+                    const range = document.createRange();
+                    range.selectNodeContents(button);
+                    const lineRects = Array.from(range.getClientRects())
+                      .filter((rect) => rect.width > 0 && rect.height > 0);
+                    return {
+                      text: button.textContent.trim(),
+                      whiteSpace: getComputedStyle(button).whiteSpace,
+                      lineCount: lineRects.length,
+                      contentFits: button.scrollWidth <= button.clientWidth + 1,
+                    };
+                    """,
+                    swap_button,
+                )
+                self.assertEqual(layout["text"], "<- Swap ->", layout)
+                self.assertEqual(layout["whiteSpace"], "nowrap", layout)
+                self.assertEqual(
+                    layout["lineCount"],
+                    1,
+                    f"Swap label should stay on one line at {width}px: {layout}",
+                )
+                self.assertTrue(
+                    layout["contentFits"],
+                    f"Swap label should fit inside the button at {width}px: {layout}",
+                )
+        finally:
+            self.driver.set_window_size(1440, 1000)
+            self.driver.get(TEST_URL)
+
+def test_station_click_opens_useful_actions(self):
         self.driver.set_window_size(1200, 900)
         self.driver.get(TEST_URL)
 
