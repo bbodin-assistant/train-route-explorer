@@ -231,7 +231,8 @@ def test_55_saujon_massy_via_angouleme_current_service_day(self):
             if (coordinateStops.length > 1) expectedRouteSegments += 1;
           }
         }
-        document.querySelector('#route-view-tabs [data-view="map"]').click();
+        const mapButton = document.querySelector('#route-view-tabs [data-view="map"]');
+        if (!mapButton.classList.contains('selected')) mapButton.click();
         return {
           expectedStations: expectedStations.size,
           expectedRouteSegments,
@@ -249,7 +250,10 @@ def test_55_saujon_massy_via_angouleme_current_service_day(self):
     self.assertGreater(map_result["actualStations"], 0)
     self.assertGreater(map_result["actualRouteSegments"], 0)
     self.driver.execute_script(
-        "document.querySelector('#route-view-tabs [data-view=\"time\"]').click();"
+        """
+        const timeButton = document.querySelector('#route-view-tabs [data-view="time"]');
+        if (!timeButton.classList.contains('selected')) timeButton.click();
+        """
     )
     self.assertFalse(
         self.driver.execute_script("return document.querySelector('#routes-time-chart').hidden;")
