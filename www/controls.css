@@ -52,6 +52,34 @@
 
 .time-config-panel label { color: #525d66; font-size: 11px; }
 
+.map-config-panel {
+  display: grid;
+  margin-top: 8px;
+  padding: 10px 0 4px;
+  border-top: 1px solid #d9ddda;
+}
+
+.map-config-panel label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 180px);
+  align-items: center;
+  gap: 10px;
+  color: #525d66;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.map-config-panel select {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 28px 6px 8px;
+  border: 1px solid #bcc3c7;
+  border-radius: 4px;
+  background: #fff;
+  color: #26313a;
+  font: 700 12px system-ui, sans-serif;
+}
+
 .input-with-unit {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 50px;
@@ -405,10 +433,10 @@
   main { padding: 0 0 12px; }
 
   .toolbar-primary {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
       "tabs menus"
-      "date date";
+      "date view";
     gap: 6px 8px;
     padding: 7px 8px;
   }
@@ -423,7 +451,7 @@
   .route-settings-menu summary::after { content: "Settings"; font-size: 11px; }
 
   .route-summary {
-    grid-template-columns: 1fr 18px 1fr;
+    grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
     grid-template-areas:
       "depart arrow1 arrival"
       "via via via";
@@ -493,26 +521,41 @@
 
 @media (max-width: 900px) {
   .toolbar-switches {
+    display: contents;
+  }
+
+  .toolbar-switches #route-direction-tabs {
     grid-area: tabs;
-    display: grid;
-    grid-template-columns: minmax(0, 1.55fr) minmax(76px, 0.8fr);
-    gap: 5px;
     width: 100%;
+  }
+
+  .toolbar-switches .view-mode-tabs {
+    grid-area: view;
+    width: 96px;
+    justify-self: end;
+    align-self: center;
+  }
+
+  .day-control {
     min-width: 0;
   }
 
-  .toolbar-switches .tab-buttons {
-    grid-area: auto;
-    width: 100%;
+  .day-control input {
+    min-width: 0;
+    flex: 1 1 auto;
   }
 }
 
 @media (max-width: 520px) {
-  .toolbar-switches .tab-buttons {
-    width: 100%;
+  .toolbar-switches #route-direction-tabs button {
+    padding-inline: 6px;
   }
 
-  .toolbar-switches .tab-buttons button {
-    padding-inline: 6px;
+  .toolbar-switches .view-mode-tabs {
+    width: 92px;
+  }
+
+  .toolbar-switches .view-mode-tabs button {
+    padding-inline: 4px;
   }
 }

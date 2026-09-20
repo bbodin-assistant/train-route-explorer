@@ -7,7 +7,7 @@ const CONTEXT_STORE = "contexts";
 const SOURCE_STORE = "sources";
 const LAST_SOURCE_KEY = "__last_source__";
 const CACHE_VERSION = "gtfs-context-v5";
-const ROUTE_PROTOCOL_VERSION = 5;
+const ROUTE_PROTOCOL_VERSION = 6;
 
 let wasmReady = false;
 let archiveBytes = null;
@@ -93,6 +93,35 @@ function buildConfigForCore(config) {
     train_types: config.train_types,
     max_transfer_count: config.max_transfer_count,
   };
+}
+
+function sameList(left, right) {
+  return Array.isArray(left)
+    && Array.isArray(right)
+    && left.length === right.length
+    && left.every((value, index) => value === right[index]);
+}
+
+function isDirectionSwap(nextConfig) {
+  return Boolean(
+    activeConfig
+    && sameList(nextConfig.local_origins, activeConfig.side_b_destinations)
+    && sameList(nextConfig.side_b_destinations, activeConfig.local_origins)
+    && sameList(nextConfig.connection_stations, activeConfig.connection_stations)
+    && sameList(nextConfig.train_types, activeConfig.train_types)
+    && nextConfig.max_transfer_count === activeConfig.max_transfer_count
+  );
+}
+
+function swapActiveContextDirection() {
+  [activeContext.local_to_connection, activeContext.side_b_to_connection] =
+    [activeContext.side_b_to_connection, activeContext.local_to_connection];
+  [activeContext.local_to_side_b, activeContext.side_b_to_local] =
+    [activeContext.side_b_to_local, activeContext.local_to_side_b];
+  [activeContext.connection_to_side_b, activeContext.connection_to_local] =
+    [activeContext.connection_to_local, activeContext.connection_to_side_b];
+  [activeContext.unrestricted_origins, activeContext.unrestricted_destinations] =
+    [activeContext.unrestricted_destinations, activeContext.unrestricted_origins];
 }
 
 async function sha256(bytes) {
@@ -493,6 +522,19 @@ self.onmessage = async (event) => {
     }
     if (type === "apply-config") {
       await buildOrLoadContext(normalizedConfig(event.data.config));
+      return;
+    }
+    if (type === "swap-config") {
+      const nextConfig = normalizedConfig(event.data.config);
+      if (!activeContext || !isDirectionSwap(nextConfig)) {
+        await buildOrLoadContext(nextConfig);
+        return;
+      }
+      swapActiveContextDirection();
+      activeConfig = nextConfig;
+      routeDebug("worker", "route context direction swapped without rebuild", {
+        config: routeConfigSummary(activeConfig),
+      });
       return;
     }
     if (type === "routes") {

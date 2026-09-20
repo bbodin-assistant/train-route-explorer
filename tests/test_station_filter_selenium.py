@@ -353,27 +353,112 @@ class StationFilterRegressionTest(unittest.TestCase):
             self._close_overlays()
             self._set_window(DESKTOP_SIZE)
 
-    def test_35_direction_switch_tracks_selected_direction(self):
-        return_selector = ".timeline-direction-switch [data-proxy-tab='back']"
-        outward_selector = ".timeline-direction-switch [data-proxy-tab='out']"
+    def test_35_direction_controls_are_removed(self):
+        self.assertTrue(
+            self.driver.execute_script(
+                """
+                return [
+                  '#route-direction-tabs',
+                  '.timeline-direction-switch',
+                  '.route-map-direction-switch',
+                ].every((selector) => document.querySelector(selector) === null);
+                """
+            )
+        )
 
-        self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, return_selector))).click()
+    def test_36_exchange_reuses_computed_reverse_routes(self):
         self.wait.until(
-            lambda driver: driver.find_element(By.CSS_SELECTOR, return_selector).get_attribute("aria-pressed") == "true"
-        )
-        self.assertIn(
-            "selected",
-            self.driver.find_element(By.CSS_SELECTOR, "#route-direction-tabs [data-tab='back']").get_attribute("class"),
+            lambda driver: driver.execute_script(
+                """
+                return import(document.querySelector('script[type="module"][src*="app.js"]').src)
+                  .then(({ app }) => Boolean(
+                    app.state.context
+                    && !app.state.settingsDirty
+                    && !app.state.refreshInFlight
+                    && !app.state.routeRequestInFlight
+                    && app.state.routes?.selected_day === app.state.selectedDay
+                  ));
+                """
+            )
         )
 
-        self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, outward_selector))).click()
-        self.wait.until(
-            lambda driver: driver.find_element(By.CSS_SELECTOR, outward_selector).get_attribute("aria-pressed") == "true"
+        result = self.driver.execute_async_script(
+            """
+            const done = arguments[0];
+            const appUrl = document.querySelector('script[type="module"][src*="app.js"]')?.src;
+            import(appUrl).then(({ app }) => {
+              const originalPostMessage = app.worker.postMessage.bind(app.worker);
+              const messages = [];
+              app.worker.postMessage = (message, ...args) => {
+                messages.push(message?.type || "");
+                return originalPostMessage(message, ...args);
+              };
+
+              const before = {
+                origins: [...app.state.config.local_origins],
+                destinations: [...app.state.config.side_b_destinations],
+                outward: app.state.routes.outward,
+                returns: app.state.routes.returns,
+                routeRequestId: app.state.routeRequestId,
+              };
+
+              document.querySelector("#swap-stations-button").click();
+
+              window.setTimeout(() => {
+                const firstSwap = {
+                  origins: [...app.state.config.local_origins],
+                  destinations: [...app.state.config.side_b_destinations],
+                  reusedOutward: app.state.routes.outward === before.returns,
+                  reusedReturns: app.state.routes.returns === before.outward,
+                  settingsDirty: app.state.settingsDirty,
+                  refreshInFlight: app.state.refreshInFlight,
+                  routeRequestInFlight: app.state.routeRequestInFlight,
+                  routeRequestId: app.state.routeRequestId,
+                  spinner: Boolean(document.querySelector(".route-refresh-spinner")),
+                  messages: [...messages],
+                };
+
+                document.querySelector("#swap-stations-button").click();
+
+                window.setTimeout(() => {
+                  const restored = {
+                    origins: [...app.state.config.local_origins],
+                    destinations: [...app.state.config.side_b_destinations],
+                    outwardRestored: app.state.routes.outward === before.outward,
+                    returnsRestored: app.state.routes.returns === before.returns,
+                    routeRequestId: app.state.routeRequestId,
+                    messages: [...messages],
+                  };
+                  app.worker.postMessage = originalPostMessage;
+                  done({ before, firstSwap, restored });
+                }, 400);
+              }, 400);
+            }).catch((error) => done({ error: String(error) }));
+            """
         )
-        self.assertIn(
-            "selected",
-            self.driver.find_element(By.CSS_SELECTOR, "#route-direction-tabs [data-tab='out']").get_attribute("class"),
-        )
+
+        self.assertNotIn("error", result, result)
+        before = result["before"]
+        first = result["firstSwap"]
+        restored = result["restored"]
+
+        self.assertEqual(first["origins"], before["destinations"], result)
+        self.assertEqual(first["destinations"], before["origins"], result)
+        self.assertTrue(first["reusedOutward"], result)
+        self.assertTrue(first["reusedReturns"], result)
+        self.assertFalse(first["settingsDirty"], result)
+        self.assertFalse(first["refreshInFlight"], result)
+        self.assertFalse(first["routeRequestInFlight"], result)
+        self.assertFalse(first["spinner"], result)
+        self.assertEqual(first["routeRequestId"], before["routeRequestId"], result)
+        self.assertEqual(first["messages"], ["swap-config"], result)
+
+        self.assertEqual(restored["origins"], before["origins"], result)
+        self.assertEqual(restored["destinations"], before["destinations"], result)
+        self.assertTrue(restored["outwardRestored"], result)
+        self.assertTrue(restored["returnsRestored"], result)
+        self.assertEqual(restored["routeRequestId"], before["routeRequestId"], result)
+        self.assertEqual(restored["messages"], ["swap-config", "swap-config"], result)
 
     def test_40_paris_filter_works_for_departure_via_and_arrival_and_can_select(self):
         for role in ROLE_TO_LIST:

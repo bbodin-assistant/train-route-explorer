@@ -319,7 +319,7 @@ main { width: 100%; padding: 0 14px 18px; }
 .route-summary {
   min-height: var(--route-summary-height);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr) 24px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr) 24px minmax(0, 1fr);
   align-items: center;
   gap: 3px;
   padding: 6px 10px 8px;
@@ -370,8 +370,9 @@ main { width: 100%; padding: 0 14px 18px; }
 .route-swap-button {
   border: 1px solid #bcc3c7;
   border-radius: 4px;
-  padding: 4px 0;
+  padding: 4px 6px;
   background: #f8f8f5;
+  white-space: nowrap;
   color: #505b65;
   cursor: pointer;
   font: 700 10px ui-monospace, "SFMono-Regular", Consolas, monospace;

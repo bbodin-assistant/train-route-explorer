@@ -25,7 +25,6 @@ const {
   showDetail,
   showRefreshNotice,
   state,
-  syncSelectedTabButtons,
   syncSetValue,
   syncStationState,
   todayGtfsDate,
@@ -128,6 +127,42 @@ function resultForActiveRequest(result) {
     days: [...(base.days || []), ...(result.days || [])],
     outward: [...(base.outward || []), ...(result.outward || [])],
     returns: [...(base.returns || []), ...(result.returns || [])],
+  };
+}
+
+function swapContextDirection(context) {
+  if (!context) return;
+  [context.local_to_connection, context.side_b_to_connection] =
+    [context.side_b_to_connection, context.local_to_connection];
+  [context.local_to_side_b, context.side_b_to_local] =
+    [context.side_b_to_local, context.local_to_side_b];
+  [context.connection_to_side_b, context.connection_to_local] =
+    [context.connection_to_local, context.connection_to_side_b];
+  [context.unrestricted_origins, context.unrestricted_destinations] =
+    [context.unrestricted_destinations, context.unrestricted_origins];
+}
+
+function canReuseReverseRoutes() {
+  return Boolean(
+    state.context
+    && !state.settingsDirty
+    && !state.refreshInFlight
+    && !state.routeRequestInFlight
+    && state.routes?.selected_day === state.selectedDay
+    && Array.isArray(state.routes?.outward)
+    && Array.isArray(state.routes?.returns)
+  );
+}
+
+function swapCachedRouteDirections() {
+  const outward = state.routes.outward || [];
+  const returns = state.routes.returns || [];
+  for (const itinerary of returns) itinerary.direction = "outward";
+  for (const itinerary of outward) itinerary.direction = "return";
+  state.routes = {
+    ...state.routes,
+    outward: returns,
+    returns: outward,
   };
 }
 
@@ -320,10 +355,25 @@ els.dayCalendar.addEventListener("change", () => {
   requestRoutes();
 });
 document.querySelector("#swap-stations-button").addEventListener("click", () => {
+  const reuseReverseRoutes = canReuseReverseRoutes();
   [state.config.local_origins, state.config.side_b_destinations] =
     [state.config.side_b_destinations, state.config.local_origins];
   renderStationPickers(state.context?.station_names || [], state.config);
   saveSettings();
+
+  if (reuseReverseRoutes) {
+    swapCachedRouteDirections();
+    swapContextDirection(state.context);
+    worker.postMessage({ type: "swap-config", config: state.config });
+    routeDebug("app", "departure and arrival exchanged using cached reverse routes", {
+      selectedDay: state.selectedDay,
+      outwardCount: state.routes.outward.length,
+      returnCount: state.routes.returns.length,
+    });
+    renderCurrentTab();
+    return;
+  }
+
   showRefreshNotice();
 });
 els.todayBtn.addEventListener("click", () => {
@@ -344,18 +394,6 @@ function selectAdjacentDay(offset) {
 }
 els.previousDayBtn.addEventListener("click", () => selectAdjacentDay(-1));
 els.nextDayBtn.addEventListener("click", () => selectAdjacentDay(1));
-els.tabs.addEventListener("click", (event) => {
-  const tab = event.target.closest("[data-tab]");
-  if (!tab) return;
-  state.selectedTab = tab.dataset.tab;
-  syncSelectedTabButtons();
-  saveSettings();
-  if (state.settingsDirty || state.refreshInFlight) {
-    renderRefreshNotice();
-  } else {
-    renderCurrentTab();
-  }
-});
 els.timeline.addEventListener("click", (event) => {
   if (event.target.closest("#timeline-load-more")) {
     requestMoreRoutes();
@@ -420,7 +458,6 @@ for (const input of [els.minTransfer, els.maxTransfer, els.maxTransferCount, els
 }
 
 writeConfig(state.config);
-syncSelectedTabButtons();
 saveSettings();
 setTimelinePlaceholder("Checking browser storage for a saved GTFS archive...");
 setStatus("Checking browser storage for a saved GTFS archive.", 5, "loading");

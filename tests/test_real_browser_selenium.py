@@ -110,7 +110,11 @@ def test_55_saujon_massy_via_angouleme_current_service_day(self):
     result = self.driver.execute_async_script(
         """
         const done = arguments[0];
-        const appUrl = new URL('./app.js?v=0.23', document.baseURI).href;
+        const appUrl = document.querySelector('script[type="module"][src*="app.js"]')?.src;
+        if (!appUrl) {
+          done({ ok: false, error: 'App module script was not found' });
+          return;
+        }
         import(appUrl).then(({ app }) => {
           window.__saujonMassyApp = app;
           const selectedDay = app.state.availableDays.includes(app.state.selectedDay)
@@ -227,7 +231,9 @@ def test_55_saujon_massy_via_angouleme_current_service_day(self):
             if (coordinateStops.length > 1) expectedRouteSegments += 1;
           }
         }
-        document.querySelector('#route-view-tabs [data-view="map"]').click();
+        const mapButton = document.querySelector('#route-view-tabs [data-view="map"]');
+        const mapView = document.querySelector('#routes-map');
+        if (mapView.hidden) mapButton.click();
         return {
           expectedStations: expectedStations.size,
           expectedRouteSegments,
@@ -245,7 +251,11 @@ def test_55_saujon_massy_via_angouleme_current_service_day(self):
     self.assertGreater(map_result["actualStations"], 0)
     self.assertGreater(map_result["actualRouteSegments"], 0)
     self.driver.execute_script(
-        "document.querySelector('#route-view-tabs [data-view=\"time\"]').click();"
+        """
+        const timeButton = document.querySelector('#route-view-tabs [data-view="time"]');
+        const timeView = document.querySelector('#routes-time-chart');
+        if (timeView.hidden) timeButton.click();
+        """
     )
     self.assertFalse(
         self.driver.execute_script("return document.querySelector('#routes-time-chart').hidden;")
