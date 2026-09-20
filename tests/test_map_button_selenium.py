@@ -157,7 +157,7 @@ class MapButtonSeleniumTest(unittest.TestCase):
             self.driver.set_window_size(1440, 1000)
             self.driver.get(TEST_URL)
 
-def test_station_click_opens_useful_actions(self):
+    def test_station_click_opens_useful_actions(self):
         self.driver.set_window_size(1200, 900)
         self.driver.get(TEST_URL)
 

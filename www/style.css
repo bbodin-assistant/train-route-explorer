@@ -373,6 +373,7 @@ main { width: 100%; padding: 0 14px 18px; }
   padding: 4px 6px;
   background: #f8f8f5;
   white-space: nowrap;
+  min-width: max-content;
   color: #505b65;
   cursor: pointer;
   font: 700 10px ui-monospace, "SFMono-Regular", Consolas, monospace;
