@@ -103,7 +103,6 @@ mapStyle.textContent = `
     stroke-linejoin: round;
     opacity: 0.78;
     vector-effect: non-scaling-stroke;
-    transition: opacity 140ms ease;
   }
 
   .route-map-route.dimmed {
