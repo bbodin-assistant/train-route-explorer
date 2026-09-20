@@ -458,7 +458,6 @@ for (const input of [els.minTransfer, els.maxTransfer, els.maxTransferCount, els
 }
 
 writeConfig(state.config);
-syncSelectedTabButtons();
 saveSettings();
 setTimelinePlaceholder("Checking browser storage for a saved GTFS archive...");
 setStatus("Checking browser storage for a saved GTFS archive.", 5, "loading");

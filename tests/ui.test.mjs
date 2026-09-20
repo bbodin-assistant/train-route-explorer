@@ -275,6 +275,25 @@ async function main() {
       message: "GTFS context to be ready",
     });
 
+    await page.send("Page.reload", { ignoreCache: true });
+    await waitFor(async () => page.eval(`document.readyState === "complete"`), {
+      timeoutMs: 15_000,
+      message: "application reload after storing GTFS",
+    });
+    await waitFor(async () => {
+      const startup = await page.eval(`({
+        contextReady: Boolean(document.querySelector("#config-local-origins input[type='checkbox']")),
+        dateEnabled: !document.querySelector("#day-calendar")?.disabled,
+        status: document.querySelector("#cache-status-text")?.textContent || "",
+        isError: document.querySelector("#cache-status")?.classList.contains("error") || false
+      })`);
+      if (startup.isError) throw new Error(startup.status);
+      return startup.contextReady && startup.dateEnabled;
+    }, {
+      timeoutMs: 30_000,
+      message: "saved GTFS source to auto-load from IndexedDB after reload",
+    });
+
     const loadedCounts = await page.eval(`({
       stationCount: document.querySelectorAll("#config-local-origins input[type='checkbox']").length,
       trainTypeCount: document.querySelectorAll("#config-train-types input[type='checkbox']").length,
