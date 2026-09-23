@@ -1,9 +1,10 @@
 import { createTimeline } from "./timeline.js";
-import { routeConfigSummary, routeDebug } from "./route-debug.js";
+import { routeConfigSummary, routeDebug } from "./route-debug.js?v=0.2";
 
 const DEFAULT_CONFIG = {
   local_origins: ["Saujon", "Saintes"],
   connection_stations: ["Bordeaux Saint-Jean", "Poitiers", "Angoulême"],
+  avoid_stations: [],
   side_b_destinations: [
     "Paris Montparnasse Hall 1 - 2",
     "Massy TGV",
@@ -26,7 +27,7 @@ const DEFAULT_MAP_STYLE = "standard";
 const MAP_STYLE_VALUES = new Set(["standard", "muted", "monochrome", "dark"]);
 const AUTO_REFRESH_DELAY_MS = 300;
 const ROUTE_DAY_COUNT = 1;
-const ROUTE_PROTOCOL_VERSION = 6;
+const ROUTE_PROTOCOL_VERSION = 7;
 const TRAIN_TYPE_COLORS = {
   "TGV INOUI": "#2563eb",
   "OUIGO Grande Vitesse": "#c026d3",
@@ -60,6 +61,7 @@ function normalizeStoredConfig(config = {}) {
   return {
     local_origins: listSetting(config.local_origins, DEFAULT_CONFIG.local_origins),
     connection_stations: listSetting(config.connection_stations, DEFAULT_CONFIG.connection_stations),
+    avoid_stations: listSetting(config.avoid_stations, DEFAULT_CONFIG.avoid_stations),
     side_b_destinations: listSetting(config.side_b_destinations, DEFAULT_CONFIG.side_b_destinations),
     train_types: listSetting(config.train_types, DEFAULT_CONFIG.train_types),
     min_transfer_minutes: minTransfer,
@@ -130,6 +132,7 @@ const els = {
   uploadBtn: $("#load-upload"),
   localOrigins: $("#config-local-origins"),
   connectionStations: $("#config-connection-stations"),
+  avoidStations: $("#config-avoid-stations"),
   sideBDestinations: $("#config-side-b-destinations"),
   stationFilters: Array.from(document.querySelectorAll(".station-filter")),
   trainTypeFilter: $("#train-type-filter"),
@@ -181,6 +184,7 @@ function readConfig() {
   return {
     local_origins: state.config.local_origins,
     connection_stations: state.config.connection_stations,
+    avoid_stations: state.config.avoid_stations,
     side_b_destinations: state.config.side_b_destinations,
     train_types: state.config.train_types,
     min_transfer_minutes: minTransfer,
@@ -241,6 +245,7 @@ function isoToGtfsDate(day) {
 function stationContainer(role) {
   if (role === "local_origins") return els.localOrigins;
   if (role === "connection_stations") return els.connectionStations;
+  if (role === "avoid_stations") return els.avoidStations;
   return els.sideBDestinations;
 }
 
@@ -284,11 +289,11 @@ function renderCheckboxList(container, options, selected, filterText, showHighli
 function renderStationPicker(role, stations, config, filterText = "") {
   const container = stationContainer(role);
   const selected = selectedSet(config, role);
-  renderCheckboxList(container, stations.length ? stations : Array.from(selected), selected, filterText, true);
+  renderCheckboxList(container, stations.length ? stations : Array.from(selected), selected, filterText, role !== "avoid_stations");
 }
 
 function renderStationPickers(stations, config = state.config) {
-  for (const role of ["local_origins", "connection_stations", "side_b_destinations"]) {
+  for (const role of ["local_origins", "side_b_destinations", "connection_stations", "avoid_stations"]) {
     const filter = document.querySelector(`.station-filter[data-role="${role}"]`);
     renderStationPicker(role, stations, config, filter?.value || "");
   }
@@ -514,4 +519,4 @@ export const app = {
   writeConfig,
 };
 
-import("./app-events.js?v=0.20");
+import("./app-events.js?v=0.21");

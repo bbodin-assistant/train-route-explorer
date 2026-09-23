@@ -77,7 +77,7 @@ layoutEnhancementStyle.textContent = `
   .route-summary {
     min-height: var(--route-summary-height) !important;
     display: grid !important;
-    grid-template-columns: minmax(0, 1fr) 30px minmax(0, 1fr) minmax(0, 1fr) !important;
+    grid-template-columns: minmax(0, 1fr) 30px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) !important;
     align-items: center !important;
     gap: 8px !important;
     padding: 5px 12px !important;
@@ -96,8 +96,9 @@ layoutEnhancementStyle.textContent = `
   }
 
   .route-summary-item[data-route-item="local_origins"] { justify-content: flex-start; }
+  .route-summary-item[data-route-item="side_b_destinations"],
   .route-summary-item[data-route-item="connection_stations"] { justify-content: center; }
-  .route-summary-item[data-route-item="side_b_destinations"] { justify-content: flex-end; }
+  .route-summary-item[data-route-item="avoid_stations"] { justify-content: flex-end; }
 
   .route-summary-stop {
     width: min(100%, 460px);
@@ -115,12 +116,13 @@ layoutEnhancementStyle.textContent = `
     transition: border-color 130ms ease, background 130ms ease, box-shadow 130ms ease;
   }
 
+  .route-summary-item[data-route-item="side_b_destinations"] .route-summary-stop,
   .route-summary-item[data-route-item="connection_stations"] .route-summary-stop {
     justify-content: center;
     text-align: center;
   }
 
-  .route-summary-item[data-route-item="side_b_destinations"] .route-summary-stop {
+  .route-summary-item[data-route-item="avoid_stations"] .route-summary-stop {
     justify-content: flex-end;
     text-align: right;
   }
@@ -177,11 +179,12 @@ layoutEnhancementStyle.textContent = `
   }
 
   .route-summary-item[data-route-item="local_origins"] .route-selector-panel { left: 0; }
+  .route-summary-item[data-route-item="side_b_destinations"] .route-selector-panel,
   .route-summary-item[data-route-item="connection_stations"] .route-selector-panel {
     left: 50%;
     transform: translateX(-50%);
   }
-  .route-summary-item[data-route-item="side_b_destinations"] .route-selector-panel { right: 0; }
+  .route-summary-item[data-route-item="avoid_stations"] .route-selector-panel { right: 0; }
   .route-selector-panel[hidden] { display: none; }
 
   .route-selector-panel .station-picker {

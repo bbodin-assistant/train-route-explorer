@@ -422,8 +422,9 @@ els.trainTypes.addEventListener("change", (event) => {
 });
 for (const [role, container] of [
   ["local_origins", els.localOrigins],
-  ["connection_stations", els.connectionStations],
   ["side_b_destinations", els.sideBDestinations],
+  ["connection_stations", els.connectionStations],
+  ["avoid_stations", els.avoidStations],
 ]) {
   container.addEventListener("change", (event) => {
     if (event.target instanceof HTMLInputElement) {

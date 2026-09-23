@@ -453,16 +453,17 @@
   .route-summary {
     grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
     grid-template-areas:
-      "depart arrow1 arrival"
-      "via via via";
+      "depart swap arrival"
+      "via via avoid";
     gap: 2px 3px;
     padding: 5px 8px 7px;
   }
 
   .route-summary-stop[data-route-role="local_origins"] { grid-area: depart; }
-  .route-summary-stop[data-route-role="connection_stations"] { grid-area: via; }
   .route-summary-stop[data-route-role="side_b_destinations"] { grid-area: arrival; }
-  .route-swap-button { grid-area: arrow1; }
+  .route-summary-stop[data-route-role="connection_stations"] { grid-area: via; }
+  .route-summary-stop[data-route-role="avoid_stations"] { grid-area: avoid; }
+  .route-swap-button { grid-area: swap; }
   .route-summary-arrow { display: none; }
 
   .route-summary-stop { grid-template-columns: max-content minmax(0, 1fr); padding: 5px 7px; }

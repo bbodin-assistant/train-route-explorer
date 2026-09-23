@@ -157,6 +157,140 @@ class MapButtonSeleniumTest(unittest.TestCase):
             self.driver.set_window_size(1440, 1000)
             self.driver.get(TEST_URL)
 
+    def test_route_menu_order_and_avoid_station_constraint(self):
+        self.driver.set_window_size(1440, 1000)
+        self.driver.get(TEST_URL)
+        self.wait.until(
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, '[data-route-role="avoid_stations"]')
+            )
+        )
+
+        result = self.driver.execute_async_script(
+            """
+            const done = arguments[0];
+            const appUrl = document.querySelector(
+              'script[type="module"][src*="app.js"]'
+            )?.src;
+            if (!appUrl) {
+              done({ ok: false, error: 'App module script was not found' });
+              return;
+            }
+
+            const constraintsUrl = new URL(
+              './route-constraints.js?v=0.1',
+              window.location.href
+            ).href;
+
+            Promise.all([import(appUrl), import(constraintsUrl)])
+              .then(([{ app }, { applyRouteStationConstraints }]) => {
+                const order = Array.from(
+                  document.querySelectorAll(
+                    '.route-summary [data-route-role], .route-summary #swap-stations-button'
+                  )
+                ).map((element) => (
+                  element.id === 'swap-stations-button'
+                    ? 'swap'
+                    : element.dataset.routeRole
+                ));
+
+                const stationNames = ['Paris', 'Tours', 'Poitiers', 'Bordeaux'];
+                app.state.context = null;
+                app.state.config = {
+                  ...app.state.config,
+                  local_origins: ['Paris'],
+                  side_b_destinations: ['Bordeaux'],
+                  connection_stations: [],
+                  avoid_stations: [],
+                };
+                app.renderStationPickers(stationNames, app.state.config);
+
+                const avoidBox = Array.from(
+                  document.querySelectorAll(
+                    '#config-avoid-stations input[type="checkbox"]'
+                  )
+                ).find((input) => input.value === 'Tours');
+                if (!avoidBox) {
+                  done({ ok: false, error: 'Tours avoid checkbox was not rendered' });
+                  return;
+                }
+                avoidBox.checked = true;
+                avoidBox.dispatchEvent(new Event('change', { bubbles: true }));
+
+                const stored = JSON.parse(
+                  localStorage.getItem('train-route-explorer-settings-v1') || '{}'
+                ).config || {};
+
+                const itinerary = (id, middle) => ({
+                  trip_id: id,
+                  departure_stop: 'Paris',
+                  destination_stop: 'Bordeaux',
+                  legs: [{
+                    departure_stop: 'Paris',
+                    destination_stop: 'Bordeaux',
+                    path: [
+                      { stop_name: 'Paris' },
+                      { stop_name: middle },
+                      { stop_name: 'Bordeaux' },
+                    ],
+                  }],
+                });
+                const routes = {
+                  outward: [
+                    itinerary('through-tours', 'Tours'),
+                    itinerary('through-poitiers', 'Poitiers'),
+                  ],
+                  returns: [],
+                };
+
+                const avoidTours = applyRouteStationConstraints(
+                  routes,
+                  [],
+                  ['Tours']
+                );
+                const requirePoitiersAndAvoidTours = applyRouteStationConstraints(
+                  routes,
+                  ['Poitiers'],
+                  ['Tours']
+                );
+                const avoidDeparture = applyRouteStationConstraints(
+                  routes,
+                  [],
+                  ['Paris']
+                );
+
+                done({
+                  ok: true,
+                  order,
+                  storedAvoid: stored.avoid_stations || [],
+                  avoidToursIds: avoidTours.outward.map((route) => route.trip_id),
+                  combinedIds: requirePoitiersAndAvoidTours.outward.map(
+                    (route) => route.trip_id
+                  ),
+                  avoidDepartureCount: avoidDeparture.outward.length,
+                });
+              })
+              .catch((error) => done({ ok: false, error: String(error) }));
+            """
+        )
+
+        self.assertTrue(result.get("ok"), result)
+        self.assertEqual(
+            result["order"],
+            [
+                "local_origins",
+                "swap",
+                "side_b_destinations",
+                "connection_stations",
+                "avoid_stations",
+            ],
+            result,
+        )
+        self.assertEqual(result["storedAvoid"], ["Tours"], result)
+        self.assertEqual(result["avoidToursIds"], ["through-poitiers"], result)
+        self.assertEqual(result["combinedIds"], ["through-poitiers"], result)
+        self.assertEqual(result["avoidDepartureCount"], 0, result)
+
     def test_station_click_opens_useful_actions(self):
         self.driver.set_window_size(1200, 900)
         self.driver.get(TEST_URL)

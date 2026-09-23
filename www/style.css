@@ -319,7 +319,7 @@ main { width: 100%; padding: 0 14px 18px; }
 .route-summary {
   min-height: var(--route-summary-height);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr) 24px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
   align-items: center;
   gap: 3px;
   padding: 6px 10px 8px;
