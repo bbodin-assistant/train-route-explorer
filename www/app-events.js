@@ -454,7 +454,16 @@ for (const [role, container] of [
     }
   });
 }
-for (const input of [els.minTransfer, els.maxTransfer, els.maxTransferCount, els.maxDuration]) {
+for (const input of [
+  els.minTransfer,
+  els.maxTransfer,
+  els.maxTransferCount,
+  els.maxDuration,
+  els.firstDepartureTime,
+  els.lastDepartureTime,
+  els.firstArrivalTime,
+  els.lastArrivalTime,
+]) {
   input.addEventListener("change", showRefreshNotice);
 }
 

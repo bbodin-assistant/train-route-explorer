@@ -1,6 +1,7 @@
 import init, { build_context, routes_for_day_with_progress } from "./pkg/train_route_explorer.js";
 import { routeConfigSummary, routeDebug } from "./route-debug.js?v=0.2";
 import { applyRouteStationConstraints } from "./route-constraints.js?v=0.1";
+import { applyRouteTimeConstraints, normalizeTimeSetting } from "./time-constraints.js?v=0.1";
 
 const CACHE_DB = "train-route-explorer";
 const DB_VERSION = 2;
@@ -8,7 +9,7 @@ const CONTEXT_STORE = "contexts";
 const SOURCE_STORE = "sources";
 const LAST_SOURCE_KEY = "__last_source__";
 const CACHE_VERSION = "gtfs-context-v5";
-const ROUTE_PROTOCOL_VERSION = 7;
+const ROUTE_PROTOCOL_VERSION = 8;
 
 let wasmReady = false;
 let archiveBytes = null;
@@ -81,6 +82,10 @@ function normalizedConfig(config) {
     max_transfer_minutes: maxTransfer,
     max_transfer_count: Math.max(0, Number(config.max_transfer_count ?? 2)),
     max_journey_duration_minutes: Math.max(0, Number(config.max_journey_duration_minutes ?? 1440)),
+    first_departure_time: normalizeTimeSetting(config.first_departure_time),
+    last_departure_time: normalizeTimeSetting(config.last_departure_time),
+    first_arrival_time: normalizeTimeSetting(config.first_arrival_time),
+    last_arrival_time: normalizeTimeSetting(config.last_arrival_time),
   };
 }
 
@@ -113,6 +118,10 @@ function isDirectionSwap(nextConfig) {
     && sameList(nextConfig.avoid_stations, activeConfig.avoid_stations)
     && sameList(nextConfig.train_types, activeConfig.train_types)
     && nextConfig.max_transfer_count === activeConfig.max_transfer_count
+    && nextConfig.first_departure_time === activeConfig.first_departure_time
+    && nextConfig.last_departure_time === activeConfig.last_departure_time
+    && nextConfig.first_arrival_time === activeConfig.first_arrival_time
+    && nextConfig.last_arrival_time === activeConfig.last_arrival_time
   );
 }
 
@@ -431,13 +440,14 @@ async function computeRoutes(days, overrides = {}, onProgress = null, selectedDa
         percent,
       });
     })), config.connection_stations, config.avoid_stations);
-    result.outward.push(...(dayResult.outward || []));
-    result.returns.push(...(dayResult.returns || []));
+    const filteredDayResult = applyRouteTimeConstraints(dayResult, config);
+    result.outward.push(...(filteredDayResult.outward || []));
+    result.returns.push(...(filteredDayResult.returns || []));
     routeDebug("worker", "service day routing completed", {
       day,
       elapsedMs: Math.round(performance.now() - dayStartedAt),
-      outwardCount: dayResult.outward?.length || 0,
-      returnCount: dayResult.returns?.length || 0,
+      outwardCount: filteredDayResult.outward?.length || 0,
+      returnCount: filteredDayResult.returns?.length || 0,
     });
     if (onProgress && index + 1 < requestedDays.length) {
       onProgress(result, index + 1, requestedDays.length);

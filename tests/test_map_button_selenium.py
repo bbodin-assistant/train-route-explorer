@@ -157,6 +157,115 @@ class MapButtonSeleniumTest(unittest.TestCase):
             self.driver.set_window_size(1440, 1000)
             self.driver.get(TEST_URL)
 
+
+    def test_optional_time_config_filters_and_persists(self):
+        self.driver.set_window_size(1440, 1000)
+        self.driver.get(TEST_URL)
+        try:
+            result = self.driver.execute_async_script(
+                """
+                const done = arguments[0];
+                const appUrl = document.querySelector(
+                  'script[type="module"][src*="app.js"]'
+                )?.src;
+                if (!appUrl) {
+                  done({ ok: false, error: 'App module script was not found' });
+                  return;
+                }
+                const constraintsUrl = new URL(
+                  './time-constraints.js?v=0.1',
+                  window.location.href
+                ).href;
+
+                Promise.all([import(appUrl), import(constraintsUrl)])
+                  .then(([{ app }, { applyRouteTimeConstraints }]) => {
+                    const values = {
+                      first_departure_time: '08:00',
+                      last_departure_time: '10:30',
+                      first_arrival_time: '10:00',
+                      last_arrival_time: '12:00',
+                    };
+                    const ids = {
+                      first_departure_time: 'config-first-departure-time',
+                      last_departure_time: 'config-last-departure-time',
+                      first_arrival_time: 'config-first-arrival-time',
+                      last_arrival_time: 'config-last-arrival-time',
+                    };
+                    for (const [field, id] of Object.entries(ids)) {
+                      const input = document.getElementById(id);
+                      if (!input) {
+                        done({ ok: false, error: `Missing ${id}` });
+                        return;
+                      }
+                      input.value = values[field];
+                    }
+
+                    const config = app.readConfig();
+                    const itinerary = (tripId, departure, arrival) => ({
+                      trip_id: tripId,
+                      departure_minutes: departure,
+                      arrival_minutes: arrival,
+                    });
+                    const filtered = applyRouteTimeConstraints({
+                      outward: [
+                        itinerary('too-early-departure', 420, 630),
+                        itinerary('match-outward', 510, 630),
+                        itinerary('too-late-departure', 690, 710),
+                        itinerary('too-early-arrival', 510, 560),
+                      ],
+                      returns: [
+                        itinerary('match-return', 600, 690),
+                        itinerary('too-late-arrival', 600, 750),
+                      ],
+                    }, config);
+
+                    app.state.config = { ...app.state.config, ...config };
+                    app.saveSettings();
+                    const stored = JSON.parse(
+                      localStorage.getItem('train-route-explorer-settings-v1') || '{}'
+                    ).config || {};
+
+                    const menu = document.querySelector('.route-settings-menu');
+                    menu.open = true;
+                    const section = document.querySelector('.journey-time-window-panel');
+
+                    done({
+                      ok: true,
+                      inputTypes: Object.values(ids).map(
+                        (id) => document.getElementById(id)?.type
+                      ),
+                      heading: section?.querySelector('h3')?.textContent?.trim(),
+                      optional: section?.querySelector('.time-window-heading span')?.textContent?.trim(),
+                      config,
+                      stored,
+                      outward: filtered.outward.map((item) => item.trip_id),
+                      returns: filtered.returns.map((item) => item.trip_id),
+                      visible: Boolean(section && getComputedStyle(section).display !== 'none'),
+                    });
+                  })
+                  .catch((error) => done({ ok: false, error: String(error) }));
+                """
+            )
+
+            self.assertTrue(result["ok"], result)
+            self.assertEqual(result["heading"], "Time")
+            self.assertEqual(result["optional"], "Optional")
+            self.assertTrue(result["visible"], result)
+            self.assertEqual(result["inputTypes"], ["time", "time", "time", "time"])
+            for field, expected in {
+                "first_departure_time": "08:00",
+                "last_departure_time": "10:30",
+                "first_arrival_time": "10:00",
+                "last_arrival_time": "12:00",
+            }.items():
+                self.assertEqual(result["config"][field], expected, result)
+                self.assertEqual(result["stored"][field], expected, result)
+            self.assertEqual(result["outward"], ["match-outward"], result)
+            self.assertEqual(result["returns"], ["match-return"], result)
+        finally:
+            self.driver.execute_script("localStorage.clear();")
+            self.driver.get(TEST_URL)
+
     def test_route_menu_order_and_avoid_station_constraint(self):
         self.driver.set_window_size(1440, 1000)
         self.driver.get(TEST_URL)
