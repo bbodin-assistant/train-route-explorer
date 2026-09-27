@@ -28,6 +28,7 @@ const {
   syncSetValue,
   syncStationState,
   todayGtfsDate,
+  updateDayWeekday,
   visibleRouteDays,
   worker,
   writeConfig,
@@ -344,9 +345,11 @@ els.dayCalendar.addEventListener("change", () => {
   if (!state.availableDays.includes(selected)) {
     setStatus("No service matching route settings for the selected calendar day.", 0, "error");
     els.dayCalendar.value = gtfsToIsoDate(state.selectedDay);
+    updateDayWeekday();
     return;
   }
   state.selectedDay = selected;
+  updateDayWeekday();
   saveSettings();
   if (state.settingsDirty) {
     showRefreshNotice();

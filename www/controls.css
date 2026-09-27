@@ -512,6 +512,7 @@
 
   .tab-buttons { grid-area: tabs; width: 172px; }
   .day-control { grid-area: date; justify-self: stretch; }
+  .day-calendar-selector { flex: 1 1 auto; width: auto; min-width: 110px; }
   .day-control input { width: 100%; }
   .toolbar-menus { grid-area: menus; }
   .toolbar-menu summary { padding-inline: 8px; }

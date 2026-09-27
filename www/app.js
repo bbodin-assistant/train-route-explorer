@@ -156,6 +156,7 @@ const els = {
   lastArrivalTime: $("#config-last-arrival-time"),
   mapStyle: $("#config-map-style"),
   dayCalendar: $("#day-calendar"),
+  dayWeekday: $("#day-weekday"),
   previousDayBtn: $("#previous-day-button"),
   todayBtn: $("#today-button"),
   nextDayBtn: $("#next-day-button"),
@@ -261,6 +262,19 @@ function gtfsToIsoDate(day) {
 
 function isoToGtfsDate(day) {
   return String(day || "").replaceAll("-", "");
+}
+
+function weekdayLabel(day) {
+  const match = String(day || "").match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (!match) return "";
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12);
+  return new Intl.DateTimeFormat("en", { weekday: "long" }).format(date);
+}
+
+function updateDayWeekday() {
+  const label = weekdayLabel(state.selectedDay);
+  els.dayWeekday.textContent = label;
+  els.dayWeekday.hidden = !label;
 }
 
 function stationContainer(role) {
@@ -382,6 +396,7 @@ function populateContextControls(context) {
   els.dayCalendar.min = gtfsToIsoDate(context.available_days[0] || "");
   els.dayCalendar.max = gtfsToIsoDate(context.available_days[context.available_days.length - 1] || "");
   els.dayCalendar.value = gtfsToIsoDate(state.selectedDay);
+  updateDayWeekday();
   els.dayCalendar.title = context.available_days.length
     ? `Available service days: ${context.available_days.map(gtfsToIsoDate).join(", ")}`
     : "No available service days";
@@ -535,9 +550,10 @@ export const app = {
   syncSetValue,
   syncStationState,
   todayGtfsDate,
+  updateDayWeekday,
   visibleRouteDays,
   worker,
   writeConfig,
 };
 
-import("./app-events.js?v=0.22");
+import("./app-events.js?v=0.23");
