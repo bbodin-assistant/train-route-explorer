@@ -324,10 +324,49 @@ layoutEnhancementStyle.textContent = `
   }
 
   @media (max-width: 560px) {
+    :root {
+      --header-height: 124px;
+      --route-summary-height: 158px;
+    }
+
+    .app-header {
+      height: var(--header-height);
+      grid-template-columns: minmax(0, 1fr) auto !important;
+      grid-template-areas: "brand status" "date view" "menus menus";
+      gap: 5px 8px !important;
+      align-content: center;
+    }
+
     .brand-rail { display: none; }
-    .brand strong { font-size: 12px; }
-    .header-tools { gap: 3px !important; }
-    .header-tools .toolbar-menus { gap: 3px; }
+    .brand strong { font-size: 12px; white-space: nowrap; }
+    .header-tools { display: contents; }
+    .header-tools .view-mode-tabs { grid-area: view; width: 92px; }
+    .header-tools .toolbar-menus { grid-area: menus; justify-self: end; gap: 5px; }
+    .app-header .status { grid-area: status; justify-self: end; }
+    .app-header > .day-control { width: 100%; }
+    .app-header .day-calendar-selector { min-width: 0; }
+    .app-header .day-control input { width: 100%; }
+
+    .route-summary {
+      grid-template-columns: minmax(0, 1fr) 78px !important;
+      grid-template-areas: "depart swap" "arrival swap" "via via" "avoid avoid";
+      gap: 3px 6px !important;
+      padding: 5px 8px !important;
+    }
+
+    .route-summary-item[data-route-item="local_origins"] { grid-area: depart; }
+    .route-summary-item[data-route-item="side_b_destinations"] { grid-area: arrival; }
+    .route-summary-item[data-route-item="connection_stations"] { grid-area: via; }
+    .route-summary-item[data-route-item="avoid_stations"] { grid-area: avoid; }
+    .route-summary-item { justify-content: stretch !important; }
+    .route-summary-item .route-summary-stop {
+      width: 100%;
+      min-height: 34px;
+      justify-content: flex-start !important;
+      text-align: left !important;
+    }
+    .route-summary-stop span { display: inline !important; }
+    .route-swap-button { grid-area: swap; align-self: center; min-width: 0; }
 
     .header-tools .toolbar-menu summary,
     .case-study-link {
@@ -335,6 +374,10 @@ layoutEnhancementStyle.textContent = `
       padding: 4px 6px;
       font-size: 10px;
     }
+  }
+
+  @media (max-width: 350px) {
+    .app-header { grid-template-areas: "brand status" "date date" "view menus"; }
   }
 `;
 document.head.append(layoutEnhancementStyle);

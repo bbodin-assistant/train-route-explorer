@@ -226,6 +226,26 @@ async function main() {
     assert(mobileViewToggle.afterMapClick.mapPressed === "false" && mobileViewToggle.afterMapClick.timePressed === "true", "Clicking the selected Map side should switch to Time");
     assert(mobileViewToggle.afterInactiveMapClick.mapPressed === "true" && mobileViewToggle.afterInactiveMapClick.timePressed === "false", "Clicking either side should toggle the Time/Map switch");
     assert(mobileViewToggle.finalMapPressed === "false" && mobileViewToggle.finalTimePressed === "true", "Time/Map toggle should finish restored to Time");
+    for (const width of [390, 320]) {
+      await page.send("Emulation.setDeviceMetricsOverride", {
+        width, height: 844, deviceScaleFactor: 1, mobile: true,
+      });
+      const layout = await page.eval(`(() => {
+        const selectors = [".brand", ".day-control", "#route-view-tabs", ".toolbar-menus", ".route-summary-item[data-route-item='local_origins']", ".route-summary-item[data-route-item='side_b_destinations']", ".route-summary-item[data-route-item='connection_stations']", ".route-summary-item[data-route-item='avoid_stations']", "#swap-stations-button"];
+        const boxes = selectors.map((selector) => document.querySelector(selector).getBoundingClientRect());
+        const overlaps = boxes.flatMap((a, i) => boxes.slice(i + 1).filter((b) =>
+          Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 &&
+          Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1
+        ).map(() => selectors[i]));
+        return {
+          overlaps,
+          clipped: boxes.some((box) => box.left < -1 || box.right > innerWidth + 1),
+          labelsVisible: [...document.querySelectorAll('.route-summary-stop span')].every((label) => getComputedStyle(label).display !== 'none'),
+        };
+      })()`);
+      assert(!layout.clipped && !layout.overlaps.length && layout.labelsVisible,
+        `Mobile header and route controls should remain separate and labelled at ${width}px: ${JSON.stringify(layout)}`);
+    }
     await page.send("Emulation.clearDeviceMetricsOverride");
     assert(await page.eval(`document.querySelector("#highlight-stations") === null`), "Separate Highlights panel should not render");
     assert(await page.eval(`document.querySelector("#swap-stations-button")?.textContent === "<- Swap ->"`), "Swap button should have the requested directional label");
