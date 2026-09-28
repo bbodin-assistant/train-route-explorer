@@ -325,18 +325,18 @@ layoutEnhancementStyle.textContent = `
 
   @media (max-width: 560px) {
     :root {
-      --header-height: 118px;
-      --route-summary-height: 86px;
+      --header-height: 84px;
+      --route-summary-height: 80px;
     }
 
     .app-header {
       height: var(--header-height);
       grid-template-columns: minmax(0, 1fr) 92px !important;
       grid-template-areas: "brand brand" "date view";
-      grid-template-rows: auto auto;
-      gap: 10px 8px !important;
+      grid-template-rows: 28px 36px;
+      gap: 6px 8px !important;
       align-content: start;
-      padding: 16px 10px 10px !important;
+      padding: 10px 10px 4px !important;
     }
 
     .brand-rail { display: none; }
@@ -355,7 +355,7 @@ layoutEnhancementStyle.textContent = `
 
     .header-tools {
       position: absolute;
-      top: 16px;
+      top: 10px;
       right: 10px;
       display: flex !important;
       align-items: center;
@@ -418,7 +418,7 @@ layoutEnhancementStyle.textContent = `
         "depart depart swap swap arrival arrival"
         "via via via avoid avoid avoid";
       gap: 4px 6px !important;
-      padding: 6px 8px !important;
+      padding: 4px 8px !important;
       align-content: center;
     }
 
@@ -463,7 +463,7 @@ layoutEnhancementStyle.textContent = `
     .app-header {
       grid-template-columns: minmax(0, 1fr) 84px !important;
       padding-inline: 8px !important;
-      gap: 10px 6px !important;
+      gap: 6px 6px !important;
     }
 
     .brand strong { font-size: 12px; }

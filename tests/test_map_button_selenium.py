@@ -156,14 +156,22 @@ class MapButtonSeleniumTest(unittest.TestCase):
                         const departure = rect('[data-route-role="local_origins"]');
                         const arrival = rect('[data-route-role="side_b_destinations"]');
                         const swap = rect('#swap-stations-button');
+                        const via = rect('[data-route-role="connection_stations"]');
+                        const avoid = rect('[data-route-role="avoid_stations"]');
                         const title = rect('.brand strong');
                         const version = rect('.app-version');
+                        const headerTools = rect('.header-tools');
+                        const day = rect('.day-control');
+                        const view = rect('#route-view-tabs');
                         return {
                           widths: [departure.height, arrival.height, swap.height],
                           titleVisible: title.width > 0 && title.left >= 0 && title.right <= innerWidth,
                           versionVisible: version.width > 0 && version.right <= innerWidth,
                           labelsVisible: [...document.querySelectorAll('.route-summary-stop span')]
                             .every((label) => getComputedStyle(label).display !== 'none'),
+                          topRowsGap: Math.min(day.top, view.top) - headerTools.bottom,
+                          routeRowsGap: Math.min(departure.top, swap.top, arrival.top) - Math.max(day.bottom, view.bottom),
+                          secondaryRouteGap: Math.min(via.top, avoid.top) - Math.max(departure.bottom, swap.bottom, arrival.bottom),
                         };
                         """
                     )
@@ -171,6 +179,11 @@ class MapButtonSeleniumTest(unittest.TestCase):
                     self.assertTrue(mobile["labelsVisible"], mobile)
                     self.assertAlmostEqual(mobile["widths"][0], mobile["widths"][1], delta=1)
                     self.assertAlmostEqual(mobile["widths"][0], mobile["widths"][2], delta=1)
+                    self.assertGreaterEqual(mobile["topRowsGap"], 4, mobile)
+                    self.assertGreaterEqual(mobile["routeRowsGap"], 4, mobile)
+                    self.assertLessEqual(mobile["routeRowsGap"], 14, mobile)
+                    self.assertGreaterEqual(mobile["secondaryRouteGap"], 2, mobile)
+                    self.assertLessEqual(mobile["secondaryRouteGap"], 8, mobile)
                 self.assertTrue(
                     layout["contentFits"],
                     f"Swap label should fit inside the button at {width}px: {layout}",
