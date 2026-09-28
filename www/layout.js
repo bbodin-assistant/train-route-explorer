@@ -331,8 +331,8 @@ layoutEnhancementStyle.textContent = `
 
     .app-header {
       height: var(--header-height);
-      grid-template-columns: minmax(0, 1fr) auto !important;
-      grid-template-areas: "brand tools" "date view";
+      grid-template-columns: minmax(0, 1fr) 92px !important;
+      grid-template-areas: "brand brand" "date view";
       grid-template-rows: auto auto;
       gap: 10px 8px !important;
       align-content: start;
@@ -340,23 +340,31 @@ layoutEnhancementStyle.textContent = `
     }
 
     .brand-rail { display: none; }
-    .brand { grid-area: brand; min-width: 0; align-self: center; }
+    .brand {
+      grid-area: brand;
+      min-width: 0;
+      max-width: calc(100% - 142px);
+      width: max-content;
+      justify-self: start;
+      align-self: center;
+    }
     .brand > span:last-child { display: block; }
     .brand small { display: none; }
     .brand strong { font-size: 13px; white-space: nowrap; }
     .brand .app-version { color: #59636b !important; font-size: 10px !important; }
 
     .header-tools {
-      grid-area: tools;
+      position: absolute;
+      top: 16px;
+      right: 10px;
       display: flex !important;
-      justify-self: end;
-      align-self: center;
+      align-items: center;
       gap: 4px !important;
     }
 
     .app-header > #route-view-tabs {
       grid-area: view;
-      justify-self: end;
+      justify-self: stretch;
       align-self: center;
       width: 92px;
     }
@@ -453,6 +461,7 @@ layoutEnhancementStyle.textContent = `
 
   @media (max-width: 350px) {
     .app-header {
+      grid-template-columns: minmax(0, 1fr) 84px !important;
       padding-inline: 8px !important;
       gap: 10px 6px !important;
     }
@@ -460,7 +469,7 @@ layoutEnhancementStyle.textContent = `
     .brand strong { font-size: 12px; }
     .brand .app-version { display: none; }
 
-    .header-tools { gap: 3px !important; }
+    .header-tools { right: 8px; gap: 3px !important; }
     .header-tools .toolbar-menus { gap: 3px; }
     .header-tools .toolbar-menu summary,
     .case-study-link {
