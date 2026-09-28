@@ -316,12 +316,6 @@ layoutEnhancementStyle.textContent = `
       transform: none !important;
     }
 
-    .route-selector-panel .station-checklist {
-      height: auto;
-      max-height: none;
-      overflow: visible;
-    }
-
     .timeline {
       height: calc(100vh - var(--header-height) - var(--route-summary-height));
       min-height: 300px;
