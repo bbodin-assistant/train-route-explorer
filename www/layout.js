@@ -326,19 +326,21 @@ layoutEnhancementStyle.textContent = `
   @media (max-width: 560px) {
     :root {
       --header-height: 124px;
-      --route-summary-height: 158px;
+      --route-summary-height: 192px;
     }
 
     .app-header {
       height: var(--header-height);
       grid-template-columns: minmax(0, 1fr) auto !important;
-      grid-template-areas: "brand status" "date view" "menus menus";
+      grid-template-areas: "brand brand" "date view" "status menus";
       gap: 5px 8px !important;
       align-content: center;
     }
 
     .brand-rail { display: none; }
-    .brand strong { font-size: 12px; white-space: nowrap; }
+    .brand { min-width: 0; }
+    .brand strong { font-size: 13px; white-space: nowrap; }
+    .brand .app-version { color: #59636b !important; font-size: 11px !important; }
     .header-tools { display: contents; }
     .header-tools .view-mode-tabs { grid-area: view; width: 92px; }
     .header-tools .toolbar-menus { grid-area: menus; justify-self: end; gap: 5px; }
@@ -348,9 +350,9 @@ layoutEnhancementStyle.textContent = `
     .app-header .day-control input { width: 100%; }
 
     .route-summary {
-      grid-template-columns: minmax(0, 1fr) 78px !important;
-      grid-template-areas: "depart swap" "arrival swap" "via via" "avoid avoid";
-      gap: 3px 6px !important;
+      grid-template-columns: minmax(0, 1fr) !important;
+      grid-template-areas: "depart" "swap" "arrival" "via" "avoid";
+      gap: 3px !important;
       padding: 5px 8px !important;
     }
 
@@ -366,7 +368,14 @@ layoutEnhancementStyle.textContent = `
       text-align: left !important;
     }
     .route-summary-stop span { display: inline !important; }
-    .route-swap-button { grid-area: swap; align-self: center; min-width: 0; }
+    .route-swap-button {
+      grid-area: swap;
+      grid-column: 1;
+      justify-self: center;
+      align-self: stretch;
+      width: 112px;
+      height: 34px;
+    }
 
     .header-tools .toolbar-menu summary,
     .case-study-link {
@@ -377,7 +386,10 @@ layoutEnhancementStyle.textContent = `
   }
 
   @media (max-width: 350px) {
-    .app-header { grid-template-areas: "brand status" "date date" "view menus"; }
+    .app-header {
+      grid-template-columns: auto minmax(0, 1fr) auto !important;
+      grid-template-areas: "brand brand brand" "date date date" "view status menus";
+    }
   }
 `;
 document.head.append(layoutEnhancementStyle);

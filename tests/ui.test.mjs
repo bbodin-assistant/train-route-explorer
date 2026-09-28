@@ -233,6 +233,10 @@ async function main() {
       const layout = await page.eval(`(() => {
         const selectors = [".brand", ".day-control", "#route-view-tabs", ".toolbar-menus", ".route-summary-item[data-route-item='local_origins']", ".route-summary-item[data-route-item='side_b_destinations']", ".route-summary-item[data-route-item='connection_stations']", ".route-summary-item[data-route-item='avoid_stations']", "#swap-stations-button"];
         const boxes = selectors.map((selector) => document.querySelector(selector).getBoundingClientRect());
+        const departure = document.querySelector('[data-route-role="local_origins"]').getBoundingClientRect();
+        const arrival = document.querySelector('[data-route-role="side_b_destinations"]').getBoundingClientRect();
+        const swap = document.querySelector('#swap-stations-button').getBoundingClientRect();
+        const version = document.querySelector('.app-version').getBoundingClientRect();
         const overlaps = boxes.flatMap((a, i) => boxes.slice(i + 1).filter((b) =>
           Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 &&
           Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1
@@ -241,9 +245,11 @@ async function main() {
           overlaps,
           clipped: boxes.some((box) => box.left < -1 || box.right > innerWidth + 1),
           labelsVisible: [...document.querySelectorAll('.route-summary-stop span')].every((label) => getComputedStyle(label).display !== 'none'),
+          sameHeight: Math.abs(departure.height - arrival.height) < 1 && Math.abs(departure.height - swap.height) < 1,
+          versionVisible: version.width > 0 && version.left >= 0 && version.right <= innerWidth,
         };
       })()`);
-      assert(!layout.clipped && !layout.overlaps.length && layout.labelsVisible,
+      assert(!layout.clipped && !layout.overlaps.length && layout.labelsVisible && layout.sameHeight && layout.versionVisible,
         `Mobile header and route controls should remain separate and labelled at ${width}px: ${JSON.stringify(layout)}`);
     }
     await page.send("Emulation.clearDeviceMetricsOverride");
