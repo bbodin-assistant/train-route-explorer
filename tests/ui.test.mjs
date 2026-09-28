@@ -231,7 +231,7 @@ async function main() {
         width, height: 844, deviceScaleFactor: 1, mobile: true,
       });
       const layout = await page.eval(`(() => {
-        const selectors = [".brand", ".day-control", "#route-view-tabs", ".toolbar-menus", ".route-summary-item[data-route-item='local_origins']", ".route-summary-item[data-route-item='side_b_destinations']", ".route-summary-item[data-route-item='connection_stations']", ".route-summary-item[data-route-item='avoid_stations']", "#swap-stations-button"];
+        const selectors = [".brand", ".day-control", "#route-view-tabs", ".header-tools", ".route-summary-item[data-route-item='local_origins']", ".route-summary-item[data-route-item='side_b_destinations']", ".route-summary-item[data-route-item='connection_stations']", ".route-summary-item[data-route-item='avoid_stations']", "#swap-stations-button"];
         const boxes = selectors.map((selector) => document.querySelector(selector).getBoundingClientRect());
         const departure = document.querySelector('[data-route-role="local_origins"]').getBoundingClientRect();
         const arrival = document.querySelector('[data-route-role="side_b_destinations"]').getBoundingClientRect();
