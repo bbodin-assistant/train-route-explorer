@@ -325,35 +325,101 @@ layoutEnhancementStyle.textContent = `
 
   @media (max-width: 560px) {
     :root {
-      --header-height: 124px;
-      --route-summary-height: 192px;
+      --header-height: 118px;
+      --route-summary-height: 86px;
     }
 
     .app-header {
       height: var(--header-height);
-      grid-template-columns: minmax(0, 1fr) auto !important;
-      grid-template-areas: "brand brand" "date view" "status menus";
-      gap: 5px 8px !important;
-      align-content: center;
+      grid-template-columns: minmax(0, 1fr) 92px !important;
+      grid-template-areas: "brand brand" "date view";
+      grid-template-rows: auto auto;
+      gap: 10px 8px !important;
+      align-content: start;
+      padding: 16px 10px 10px !important;
     }
 
     .brand-rail { display: none; }
-    .brand { min-width: 0; }
+    .brand {
+      grid-area: brand;
+      min-width: 0;
+      max-width: calc(100% - 142px);
+      width: max-content;
+      justify-self: start;
+      align-self: center;
+    }
+    .brand > span:last-child { display: block; }
+    .brand small { display: none; }
     .brand strong { font-size: 13px; white-space: nowrap; }
-    .brand .app-version { color: #59636b !important; font-size: 11px !important; }
-    .header-tools { display: contents; }
-    .header-tools .view-mode-tabs { grid-area: view; width: 92px; }
-    .header-tools .toolbar-menus { grid-area: menus; justify-self: end; gap: 5px; }
-    .app-header .status { grid-area: status; justify-self: end; }
-    .app-header > .day-control { width: 100%; }
-    .app-header .day-calendar-selector { min-width: 0; }
-    .app-header .day-control input { width: 100%; }
+    .brand .app-version { color: #59636b !important; font-size: 10px !important; }
+
+    .header-tools {
+      position: absolute;
+      top: 16px;
+      right: 10px;
+      display: flex !important;
+      align-items: center;
+      gap: 4px !important;
+    }
+
+    .app-header > #route-view-tabs {
+      grid-area: view;
+      justify-self: stretch;
+      align-self: center;
+      width: 92px;
+    }
+
+    .header-tools .toolbar-menus {
+      display: flex;
+      gap: 4px;
+    }
+
+    .app-header .status {
+      max-width: 12px !important;
+      grid-template-columns: 8px !important;
+      gap: 0 !important;
+    }
+
+    #cache-status-text { display: none; }
+    .status progress { display: none; }
+
+    .header-tools .toolbar-menu summary,
+    .case-study-link {
+      min-height: 28px;
+      padding: 4px 6px;
+      font-size: 10px;
+    }
+
+    .app-header > .day-control {
+      grid-area: date;
+      justify-self: stretch;
+      width: 100%;
+      min-width: 0;
+    }
+
+    .app-header .day-calendar-selector {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .app-header .day-control input { width: 100%; min-width: 0; }
+    .app-header .day-control button {
+      min-height: 32px;
+      padding-inline: 8px;
+    }
+    .app-header .day-control .day-arrow {
+      min-width: 30px;
+      padding-inline: 6px;
+    }
 
     .route-summary {
-      grid-template-columns: minmax(0, 1fr) !important;
-      grid-template-areas: "depart" "swap" "arrival" "via" "avoid";
-      gap: 3px !important;
-      padding: 5px 8px !important;
+      grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+      grid-template-areas:
+        "depart depart swap swap arrival arrival"
+        "via via via avoid avoid avoid";
+      gap: 4px 6px !important;
+      padding: 6px 8px !important;
+      align-content: center;
     }
 
     .route-summary-item[data-route-item="local_origins"] { grid-area: depart; }
@@ -361,13 +427,21 @@ layoutEnhancementStyle.textContent = `
     .route-summary-item[data-route-item="connection_stations"] { grid-area: via; }
     .route-summary-item[data-route-item="avoid_stations"] { grid-area: avoid; }
     .route-summary-item { justify-content: stretch !important; }
+
     .route-summary-item .route-summary-stop {
       width: 100%;
       min-height: 34px;
       justify-content: flex-start !important;
       text-align: left !important;
+      padding-inline: 7px !important;
     }
-    .route-summary-stop span { display: inline !important; }
+
+    .route-summary-stop span {
+      display: inline !important;
+      font-size: 8px !important;
+    }
+
+    .route-summary-stop strong { font-size: 10px !important; }
 
     .route-selector-panel {
       top: var(--header-height);
@@ -376,29 +450,50 @@ layoutEnhancementStyle.textContent = `
 
     .route-swap-button {
       grid-area: swap;
-      grid-column: 1;
       justify-self: center;
       align-self: stretch;
-      width: 112px;
+      width: 74px;
       height: 34px;
-    }
-
-    .header-tools .toolbar-menu summary,
-    .case-study-link {
-      min-height: 28px;
-      padding: 4px 6px;
-      font-size: 10px;
+      min-width: 0;
+      padding-inline: 5px;
     }
   }
 
   @media (max-width: 350px) {
     .app-header {
-      grid-template-columns: auto minmax(0, 1fr) auto !important;
-      grid-template-areas: "brand brand brand" "date date date" "view status menus";
+      grid-template-columns: minmax(0, 1fr) 84px !important;
+      padding-inline: 8px !important;
+      gap: 10px 6px !important;
     }
+
+    .brand strong { font-size: 12px; }
+    .brand .app-version { display: none; }
+
+    .header-tools { right: 8px; gap: 3px !important; }
+    .header-tools .toolbar-menus { gap: 3px; }
+    .header-tools .toolbar-menu summary,
+    .case-study-link {
+      padding-inline: 5px;
+      font-size: 9px;
+    }
+
+    .app-header > #route-view-tabs { width: 84px; }
+    .route-summary { gap: 4px !important; padding-inline: 6px !important; }
+    .route-swap-button { width: 68px; font-size: 10px; }
   }
 `;
 document.head.append(layoutEnhancementStyle);
+
+const mobileHeaderQuery = window.matchMedia("(max-width: 560px)");
+
+function placeViewTabs() {
+  if (!viewTabs || !appHeader || !headerTools) return;
+  if (mobileHeaderQuery.matches) {
+    if (viewTabs.parentElement !== appHeader) appHeader.insertBefore(viewTabs, headerTools);
+  } else if (viewTabs.parentElement !== headerTools) {
+    headerTools.insertBefore(viewTabs, status || headerTools.firstChild);
+  }
+}
 
 function reorganizeHeader() {
   if (!appHeader || !headerTools) return;
@@ -407,9 +502,7 @@ function reorganizeHeader() {
     appHeader.insertBefore(dayControl, headerTools);
   }
 
-  if (viewTabs && viewTabs.parentElement !== headerTools) {
-    headerTools.insertBefore(viewTabs, status || headerTools.firstChild);
-  }
+  placeViewTabs();
 
   if (toolbarMenus && toolbarMenus.parentElement !== headerTools) {
     headerTools.insertBefore(toolbarMenus, aboutLink || null);
@@ -417,7 +510,7 @@ function reorganizeHeader() {
 
   if (routeSettings) {
     const summary = routeSettings.querySelector(":scope > summary");
-    if (summary) summary.textContent = "Settings";
+    if (summary) summary.textContent = "Config";
   }
 
   if (toolbarPrimary) toolbarPrimary.setAttribute("aria-hidden", "true");
@@ -615,6 +708,7 @@ if (status) {
   });
 }
 
+mobileHeaderQuery.addEventListener("change", placeViewTabs);
 reorganizeHeader();
 installInlineRouteSelectors();
 updateRouteSummary();

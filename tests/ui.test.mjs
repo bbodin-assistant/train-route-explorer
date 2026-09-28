@@ -231,26 +231,52 @@ async function main() {
         width, height: 844, deviceScaleFactor: 1, mobile: true,
       });
       const layout = await page.eval(`(() => {
-        const selectors = [".brand", ".day-control", "#route-view-tabs", ".toolbar-menus", ".route-summary-item[data-route-item='local_origins']", ".route-summary-item[data-route-item='side_b_destinations']", ".route-summary-item[data-route-item='connection_stations']", ".route-summary-item[data-route-item='avoid_stations']", "#swap-stations-button"];
+        const selectors = [".brand", ".day-control", "#route-view-tabs", ".header-tools", ".route-summary-item[data-route-item='local_origins']", ".route-summary-item[data-route-item='side_b_destinations']", ".route-summary-item[data-route-item='connection_stations']", ".route-summary-item[data-route-item='avoid_stations']", "#swap-stations-button"];
         const boxes = selectors.map((selector) => document.querySelector(selector).getBoundingClientRect());
         const departure = document.querySelector('[data-route-role="local_origins"]').getBoundingClientRect();
         const arrival = document.querySelector('[data-route-role="side_b_destinations"]').getBoundingClientRect();
+        const via = document.querySelector('[data-route-role="connection_stations"]').getBoundingClientRect();
+        const avoid = document.querySelector('[data-route-role="avoid_stations"]').getBoundingClientRect();
         const swap = document.querySelector('#swap-stations-button').getBoundingClientRect();
+        const brand = document.querySelector('.brand').getBoundingClientRect();
+        const headerTools = document.querySelector('.header-tools').getBoundingClientRect();
+        const day = document.querySelector('.day-control').getBoundingClientRect();
+        const view = document.querySelector('#route-view-tabs').getBoundingClientRect();
+        const appHeader = document.querySelector('.app-header');
         const version = document.querySelector('.app-version').getBoundingClientRect();
         const overlaps = boxes.flatMap((a, i) => boxes.slice(i + 1).filter((b) =>
           Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 &&
           Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1
         ).map(() => selectors[i]));
+        const sameRow = (left, right) => Math.abs((left.top + left.bottom) / 2 - (right.top + right.bottom) / 2) < 2;
         return {
           overlaps,
           clipped: boxes.some((box) => box.left < -1 || box.right > innerWidth + 1),
           labelsVisible: [...document.querySelectorAll('.route-summary-stop span')].every((label) => getComputedStyle(label).display !== 'none'),
           sameHeight: Math.abs(departure.height - arrival.height) < 1 && Math.abs(departure.height - swap.height) < 1,
-          versionVisible: version.width > 0 && version.left >= 0 && version.right <= innerWidth,
+          titleActionsRow: sameRow(brand, headerTools),
+          dateViewRow: sameRow(day, view),
+          primaryRouteRow: sameRow(departure, swap) && sameRow(swap, arrival),
+          secondaryRouteRow: sameRow(via, avoid) && via.top > departure.bottom,
+          configLabel: document.querySelector('.route-settings-menu > summary')?.textContent?.trim(),
+          topPadding: parseFloat(getComputedStyle(appHeader).paddingTop),
+          versionVisible: width < 350 || (version.width > 0 && version.left >= 0 && version.right <= innerWidth),
         };
       })()`);
-      assert(!layout.clipped && !layout.overlaps.length && layout.labelsVisible && layout.sameHeight && layout.versionVisible,
-        `Mobile header and route controls should remain separate and labelled at ${width}px: ${JSON.stringify(layout)}`);
+      assert(
+        !layout.clipped &&
+        !layout.overlaps.length &&
+        layout.labelsVisible &&
+        layout.sameHeight &&
+        layout.titleActionsRow &&
+        layout.dateViewRow &&
+        layout.primaryRouteRow &&
+        layout.secondaryRouteRow &&
+        layout.configLabel === "Config" &&
+        layout.topPadding >= 14 &&
+        layout.versionVisible,
+        `Mobile header and route controls should follow the compact four-row layout at ${width}px: ${JSON.stringify(layout)}`
+      );
     }
     await page.send("Emulation.clearDeviceMetricsOverride");
     assert(await page.eval(`document.querySelector("#highlight-stations") === null`), "Separate Highlights panel should not render");
