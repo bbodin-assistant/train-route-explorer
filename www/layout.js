@@ -394,7 +394,7 @@ layoutEnhancementStyle.textContent = `
       min-width: 0;
     }
 
-    .app-header .day-control input { width: 100%; }
+    .app-header .day-control input { width: 100%; min-width: 0; }
     .app-header .day-control button {
       min-height: 32px;
       padding-inline: 8px;
