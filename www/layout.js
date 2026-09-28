@@ -368,6 +368,12 @@ layoutEnhancementStyle.textContent = `
       text-align: left !important;
     }
     .route-summary-stop span { display: inline !important; }
+
+    .route-selector-panel {
+      top: var(--header-height);
+      max-height: calc(100vh - var(--header-height) - 8px);
+    }
+
     .route-swap-button {
       grid-area: swap;
       grid-column: 1;
