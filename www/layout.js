@@ -475,6 +475,17 @@ layoutEnhancementStyle.textContent = `
 `;
 document.head.append(layoutEnhancementStyle);
 
+const mobileHeaderQuery = window.matchMedia("(max-width: 560px)");
+
+function placeViewTabs() {
+  if (!viewTabs || !appHeader || !headerTools) return;
+  if (mobileHeaderQuery.matches) {
+    if (viewTabs.parentElement !== appHeader) appHeader.insertBefore(viewTabs, headerTools);
+  } else if (viewTabs.parentElement !== headerTools) {
+    headerTools.insertBefore(viewTabs, status || headerTools.firstChild);
+  }
+}
+
 function reorganizeHeader() {
   if (!appHeader || !headerTools) return;
 
@@ -482,9 +493,7 @@ function reorganizeHeader() {
     appHeader.insertBefore(dayControl, headerTools);
   }
 
-  if (viewTabs && viewTabs.parentElement !== appHeader) {
-    appHeader.insertBefore(viewTabs, headerTools);
-  }
+  placeViewTabs();
 
   if (toolbarMenus && toolbarMenus.parentElement !== headerTools) {
     headerTools.insertBefore(toolbarMenus, aboutLink || null);
@@ -690,6 +699,7 @@ if (status) {
   });
 }
 
+mobileHeaderQuery.addEventListener("change", placeViewTabs);
 reorganizeHeader();
 installInlineRouteSelectors();
 updateRouteSummary();
