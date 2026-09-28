@@ -453,9 +453,24 @@ layoutEnhancementStyle.textContent = `
 
   @media (max-width: 350px) {
     .app-header {
-      grid-template-columns: auto minmax(0, 1fr) auto !important;
-      grid-template-areas: "brand brand brand" "date date date" "view status menus";
+      padding-inline: 8px !important;
+      gap: 10px 6px !important;
     }
+
+    .brand strong { font-size: 12px; }
+    .brand .app-version { display: none; }
+
+    .header-tools { gap: 3px !important; }
+    .header-tools .toolbar-menus { gap: 3px; }
+    .header-tools .toolbar-menu summary,
+    .case-study-link {
+      padding-inline: 5px;
+      font-size: 9px;
+    }
+
+    .app-header > #route-view-tabs { width: 84px; }
+    .route-summary { gap: 4px !important; padding-inline: 6px !important; }
+    .route-swap-button { width: 68px; font-size: 10px; }
   }
 `;
 document.head.append(layoutEnhancementStyle);
